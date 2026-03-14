@@ -1,11 +1,10 @@
-import os
-import sys
+"""
+main.py
+~~~~~~~
+Entry point – just calls app.run().
+"""
 
-# Import version from version.py (same folder)
-from version import __version__
-
-def main():
-    print(f"Hello from STANDARD template! Version: {__version__}")
+from app import run
 
 if __name__ == "__main__":
-    main()
+    run()
