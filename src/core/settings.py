@@ -12,7 +12,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".portrait_screenshot_settings.json")
+SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".memoshot_settings.json")
 
 DEFAULT_SETTINGS: dict = {
     "hotkey": "ctrl+shift+p",

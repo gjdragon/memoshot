@@ -11,6 +11,7 @@ from core.hotkey import HotkeyThread
 from ui.overlay import CaptureOverlay
 from utils.logger import get_logger
 from version import __version__
+from typing import Optional
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QIcon, QPixmap
@@ -45,9 +46,17 @@ class PortraitScreenshotApp(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.settings = cfg.load()
-        self.overlay: CaptureOverlay | None = None
+        self.overlay: Optional[CaptureOverlay] = None
         self.hotkey_thread: HotkeyThread | None = None
         self.is_exiting = False
+
+        # ── Auto-save debounce timer ───────────────────────────────────────────
+        # Fires 600 ms after the last setting change so rapid spin-box clicks
+        # don't hammer the disk on every step.
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(600)
+        self._save_timer.timeout.connect(self._flush_auto_save)
 
         self.setWindowTitle(f"MemoShot v{APP_VERSION}")
         self.setGeometry(300, 300, 450, 350)
@@ -112,6 +121,7 @@ class PortraitScreenshotApp(QMainWindow):
         hl.addWidget(QLabel("Hotkey:"))
         self.hotkey_input = QLineEdit(self.settings["hotkey"])
         self.hotkey_input.setPlaceholderText("e.g., ctrl+shift+p")
+        self.hotkey_input.editingFinished.connect(self._schedule_auto_save)
         hl.addWidget(self.hotkey_input)
         layout.addLayout(hl)
 
@@ -119,6 +129,7 @@ class PortraitScreenshotApp(QMainWindow):
         sl = QHBoxLayout()
         sl.addWidget(QLabel("Save to:"))
         self.save_input = QLineEdit(self.settings["save_location"])
+        self.save_input.editingFinished.connect(self._schedule_auto_save)
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self._browse_folder)
         sl.addWidget(self.save_input, 3)
@@ -130,6 +141,7 @@ class PortraitScreenshotApp(QMainWindow):
         pl.addWidget(QLabel("File prefix:"))
         self.prefix_input = QLineEdit(self.settings.get("file_prefix", ""))
         self.prefix_input.setPlaceholderText("Leave empty for timestamp, or enter prefix")
+        self.prefix_input.editingFinished.connect(self._schedule_auto_save)
         pl.addWidget(self.prefix_input)
         layout.addLayout(pl)
 
@@ -140,12 +152,14 @@ class PortraitScreenshotApp(QMainWindow):
         self.width_spin.setRange(100, 4000)
         self.width_spin.setValue(self.settings["portrait_width"])
         self.width_spin.valueChanged.connect(self._on_width_changed)
+        self.width_spin.valueChanged.connect(self._schedule_auto_save)
         dl.addWidget(self.width_spin)
         dl.addWidget(QLabel("Height:"))
         self.height_spin = QSpinBox()
         self.height_spin.setRange(100, 4000)
         self.height_spin.setValue(self.settings["portrait_height"])
         self.height_spin.valueChanged.connect(self._on_height_changed)
+        self.height_spin.valueChanged.connect(self._schedule_auto_save)
         dl.addWidget(self.height_spin)
         layout.addLayout(dl)
 
@@ -154,6 +168,7 @@ class PortraitScreenshotApp(QMainWindow):
         self.lock_ratio_checkbox = QCheckBox("Lock Aspect Ratio")
         self.lock_ratio_checkbox.setChecked(self.settings.get("lock_ratio", True))
         self.lock_ratio_checkbox.stateChanged.connect(self._on_lock_ratio_changed)
+        self.lock_ratio_checkbox.stateChanged.connect(self._schedule_auto_save)
         rl.addWidget(self.lock_ratio_checkbox)
 
         self.ratio_group = QButtonGroup()
@@ -165,6 +180,8 @@ class PortraitScreenshotApp(QMainWindow):
          else self.ratio_16_9).setChecked(True)
         self.ratio_9_16.toggled.connect(self._on_ratio_mode_changed)
         self.ratio_16_9.toggled.connect(self._on_ratio_mode_changed)
+        self.ratio_9_16.toggled.connect(self._schedule_auto_save)
+        self.ratio_16_9.toggled.connect(self._schedule_auto_save)
         rl.addWidget(self.ratio_9_16)
         rl.addWidget(self.ratio_16_9)
         rl.addStretch()
@@ -185,13 +202,20 @@ class PortraitScreenshotApp(QMainWindow):
         cl = QHBoxLayout()
         self.copy_to_clipboard_checkbox = QCheckBox("Copy screenshot to clipboard")
         self.copy_to_clipboard_checkbox.setChecked(self.settings.get("copy_to_clipboard", True))
+        self.copy_to_clipboard_checkbox.stateChanged.connect(self._schedule_auto_save)
         cl.addWidget(self.copy_to_clipboard_checkbox)
         cl.addStretch()
         layout.addLayout(cl)
 
-        save_btn = QPushButton("Save Settings")
-        save_btn.clicked.connect(self._apply_settings)
-        layout.addWidget(save_btn)
+        # Auto-save indicator — replaces the old "Save Settings" button.
+        # Appears briefly after each save and fades automatically.
+        self.autosave_label = QLabel("✔  Settings saved")
+        self.autosave_label.setStyleSheet(
+            "color: #10b981; font-size: 10px; font-style: italic;"
+        )
+        self.autosave_label.setAlignment(Qt.AlignRight)
+        self.autosave_label.setVisible(False)
+        layout.addWidget(self.autosave_label)
 
         group.setLayout(layout)
         return group
@@ -290,28 +314,33 @@ class PortraitScreenshotApp(QMainWindow):
         self.height_spin.blockSignals(False)
         self._update_ratio_label()
 
-    # ── Settings panel slots ───────────────────────────────────────────────────
+    # ── Auto-save ─────────────────────────────────────────────────────────────
 
-    def _apply_settings(self) -> None:
+    def _schedule_auto_save(self, *_args) -> None:
+        """Restart the debounce timer on every settings change."""
+        self._save_timer.start()
+        self.autosave_label.setVisible(False)
+
+    def _flush_auto_save(self) -> None:
+        """Persist the current UI state to disk — no dialog, no interruption."""
         old_hotkey = self.settings["hotkey"]
-        self.settings["hotkey"] = self.hotkey_input.text()
-        self.settings["save_location"] = self.save_input.text()
-        self.settings["file_prefix"] = self.prefix_input.text()
-        self.settings["portrait_width"] = self.width_spin.value()
-        self.settings["portrait_height"] = self.height_spin.value()
-        self.settings["lock_ratio"] = self.lock_ratio_checkbox.isChecked()
-        self.settings["ratio_mode"] = "9:16" if self.ratio_9_16.isChecked() else "16:9"
-        self.settings["copy_to_clipboard"] = self.copy_to_clipboard_checkbox.isChecked()
+        self._snapshot_ui_to_settings()
         cfg.save(self.settings)
         if old_hotkey != self.settings["hotkey"]:
             self._register_hotkey()
         self.tray_icon.setToolTip(f"MemoShot\nPress {self.settings['hotkey'].upper()}")
-        QMessageBox.information(self, "Settings Saved", "Your settings have been saved successfully!")
+        logger.info("Settings auto-saved")
+        # Brief confirmation — visible for 2.5 s then disappears
+        self.autosave_label.setVisible(True)
+        QTimer.singleShot(2500, lambda: self.autosave_label.setVisible(False))
+
+    # ── Settings panel helpers ─────────────────────────────────────────────────
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Save Location")
         if folder:
             self.save_input.setText(folder)
+            self._schedule_auto_save()
 
     def _on_width_changed(self, value: int) -> None:
         if self.settings.get("lock_ratio", True):

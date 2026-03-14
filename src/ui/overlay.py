@@ -6,8 +6,13 @@ Handles drawing, drag/resize interaction, keyboard shortcuts,
 and delegates the actual save/clipboard work to capture.screenshot.
 """
 
+import os
+import subprocess
+import sys
+from typing import Optional
+
 from PyQt5.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QCursor, QPainter, QPen, QPixmap
+from PyQt5.QtGui import QColor, QCursor, QFont, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
 
 from capture.screenshot import save_screenshot
@@ -62,6 +67,7 @@ class CaptureOverlay(QWidget):
         self.resizing = False
         self.resize_edge = None
         self.resize_min_size = 100
+        self._show_shortcuts = False   # toggled by the '?' key
 
         self._capture_screens()
 
@@ -140,15 +146,16 @@ class CaptureOverlay(QWidget):
         for corner in [cr.topLeft(), cr.topRight(), cr.bottomLeft(), cr.bottomRight()]:
             painter.drawEllipse(corner.x() - handle_size, corner.y() - handle_size,
                                 handle_size * 2, handle_size * 2)
-        for edge in [
+        for edge_pt in [
             QPoint(cr.center().x(), cr.top()),
             QPoint(cr.center().x(), cr.bottom()),
             QPoint(cr.left(), cr.center().y()),
             QPoint(cr.right(), cr.center().y()),
         ]:
-            painter.drawRect(edge.x() - handle_size // 2, edge.y() - handle_size // 2,
+            painter.drawRect(edge_pt.x() - handle_size // 2, edge_pt.y() - handle_size // 2,
                              handle_size, handle_size)
 
+        # Dimension badge above the selection
         painter.setPen(Qt.white)
         dim_text = f"{cr.width()} × {cr.height()} px"
         fm = painter.fontMetrics()
@@ -159,6 +166,7 @@ class CaptureOverlay(QWidget):
                          QColor(147, 51, 234))
         painter.drawText(tx, ty, dim_text)
 
+        # Snap hint below the selection
         snap_text = "Press S to snap to screen"
         sr = fm.boundingRect(snap_text)
         sx = cr.center().x() - sr.width() // 2
@@ -168,14 +176,87 @@ class CaptureOverlay(QWidget):
         painter.setPen(QColor(167, 139, 250))
         painter.drawText(sx, sy, snap_text)
 
+        # Bottom instruction bar  (? key hint added)
         painter.setPen(Qt.white)
-        inst = "ENTER = Capture  |  ESC = Cancel  |  S = Snap to Screen  |  Drag to move  |  Drag edges/corners to resize"
+        inst = "ENTER = Capture  |  ESC = Cancel  |  S = Snap  |  ? = Shortcuts  |  Drag to move / resize"
         ir = fm.boundingRect(inst)
         ix = self.width() // 2 - ir.width() // 2
         iy = self.height() - 50
         painter.fillRect(ix - 20, iy - ir.height() - 10, ir.width() + 40, ir.height() + 20,
                          QColor(30, 41, 59, 230))
         painter.drawText(ix, iy, inst)
+
+        # Shortcut cheat-sheet (shown when _show_shortcuts is True)
+        if self._show_shortcuts:
+            self._paint_shortcut_panel(painter)
+
+    # ── Keyboard shortcut cheat-sheet panel ───────────────────────────────────
+
+    def _paint_shortcut_panel(self, painter: QPainter) -> None:
+        """Draw a centred semi-transparent cheat-sheet panel on the overlay."""
+        shortcuts = [
+            ("Enter / Return", "Capture and save the screenshot"),
+            ("Esc",            "Close panel if open, else cancel overlay"),
+            ("S",              "Snap selection to the current screen"),
+            ("?",              "Toggle this keyboard shortcut panel"),
+            ("Drag (inside)",  "Move the capture region"),
+            ("Drag (edge)",    "Resize from any edge"),
+            ("Drag (corner)",  "Resize from any corner handle"),
+        ]
+
+        fm = painter.fontMetrics()
+        line_h = fm.height() + 10
+        pad_x, pad_y = 32, 20
+        title_text = "Keyboard Shortcuts"
+        title_h = fm.height() + 18
+
+        max_key_w = max(fm.boundingRect(k).width() for k, _ in shortcuts)
+        max_val_w = max(fm.boundingRect(v).width() for _, v in shortcuts)
+        col_gap = 24
+        panel_w = max_key_w + col_gap + max_val_w + pad_x * 2
+        panel_h = title_h + len(shortcuts) * line_h + pad_y * 2 + 20  # +20 for dismiss hint
+
+        px = (self.width() - panel_w) // 2
+        py = (self.height() - panel_h) // 2
+
+        # Panel background + border
+        painter.setBrush(QColor(15, 15, 30, 235))
+        painter.setPen(QPen(QColor(147, 51, 234), 2))
+        painter.drawRoundedRect(px, py, panel_w, panel_h, 12, 12)
+
+        # Title bar
+        painter.fillRect(px + 2, py + 2, panel_w - 4, title_h - 2, QColor(147, 51, 234, 210))
+        title_font = QFont(painter.font())
+        title_font.setBold(True)
+        title_font.setPointSize(painter.font().pointSize() + 1)
+        painter.setFont(title_font)
+        painter.setPen(Qt.white)
+        title_w = fm.boundingRect(title_text).width()
+        painter.drawText(px + (panel_w - title_w) // 2, py + title_h - 7, title_text)
+        painter.setFont(QFont(title_font.family()))   # reset to default weight
+
+        # Shortcut rows
+        key_x = px + pad_x
+        val_x = px + pad_x + max_key_w + col_gap
+        base_y = py + title_h + pad_y
+        for i, (key, desc) in enumerate(shortcuts):
+            row_y = base_y + i * line_h
+            # Subtle alternating row tint
+            if i % 2 == 0:
+                painter.fillRect(px + 2, row_y, panel_w - 4, line_h,
+                                 QColor(255, 255, 255, 10))
+            text_y = row_y + fm.ascent() + 4
+            painter.setPen(QColor(167, 139, 250))
+            painter.drawText(key_x, text_y, key)
+            painter.setPen(QColor(226, 232, 240))
+            painter.drawText(val_x, text_y, desc)
+
+        # Dismiss hint at the bottom of the panel
+        hint = "Press ? or Esc to close"
+        hint_w = fm.boundingRect(hint).width()
+        painter.setPen(QColor(148, 163, 184))
+        painter.drawText(px + (panel_w - hint_w) // 2,
+                         py + panel_h - 8, hint)
 
     # ── Mouse interaction ──────────────────────────────────────────────────────
 
@@ -284,9 +365,18 @@ class CaptureOverlay(QWidget):
         if key in (Qt.Key_Return, Qt.Key_Enter):
             self._capture_and_save()
         elif key == Qt.Key_Escape:
-            self.close()
+            # First press closes the shortcut panel; second press exits the overlay
+            if self._show_shortcuts:
+                self._show_shortcuts = False
+                self.update()
+            else:
+                self.close()
         elif key == Qt.Key_S:
             self._snap_to_screen()
+        elif key in (Qt.Key_Question, Qt.Key_Slash):
+            # '?' toggles the shortcut cheat-sheet panel
+            self._show_shortcuts = not self._show_shortcuts
+            self.update()
 
     # ── Snap to screen ─────────────────────────────────────────────────────────
 
@@ -336,33 +426,74 @@ class CaptureOverlay(QWidget):
             filepath = save_screenshot(self.screen_pixmap, self.capture_rect, self.settings)
             self._save_capture_region()
             self.capture_signal.emit(self.capture_rect)
-            self._show_toast(f"Screenshot saved:\n{filepath}")
+            self._show_toast(filepath)
         except Exception as exc:
             logger.error(f"Error during capture: {exc}")
-            self._show_toast(f"Capture failed: {exc}", is_error=True, duration=3000)
+            self._show_toast(None, error_msg=str(exc))
         finally:
             self.close()
 
     # ── Toast notification ─────────────────────────────────────────────────────
 
-    def _show_toast(self, message: str, is_error: bool = False, duration: int = 2000) -> None:
-        bg = "#dc2626" if is_error else "#10b981"
-        toast = QFrame()
-        toast.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        toast.setStyleSheet(f"QFrame {{ background-color: {bg}; border-radius: 8px; padding: 15px 25px; }}")
-        label = QLabel(message)
-        label.setStyleSheet("color: white; font-weight: bold; font-size: 13px;")
-        label.setAlignment(Qt.AlignCenter)
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(label)
-        toast.setLayout(layout)
-        toast.adjustSize()
-        toast.setWindowOpacity(0.95)
+    def _show_toast(self, filepath: Optional[str], *,
+                    error_msg: Optional[str] = None,
+                    duration: int = 3500) -> None:
+        """
+        Show a notification anchored to the bottom of the *primary* screen —
+        never rendered over the capture overlay itself.
 
+        On success, includes a clickable 'Show in Explorer' link.
+        """
+        is_error = error_msg is not None
+        bg     = "#1e1e2e" if not is_error else "#2a1515"
+        border = "#10b981" if not is_error else "#dc2626"
+
+        toast = QFrame()
+        toast.setWindowFlags(
+            Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        toast.setAttribute(Qt.WA_ShowWithoutActivating)
+        toast.setStyleSheet(
+            f"QFrame {{ background-color: {bg}; border: 2px solid {border}; "
+            f"border-radius: 10px; }}"
+        )
+
+        vbox = QVBoxLayout()
+        vbox.setContentsMargins(20, 14, 20, 14)
+        vbox.setSpacing(6)
+        toast.setLayout(vbox)
+
+        if is_error:
+            msg = QLabel(f"❌  Capture failed\n{error_msg}")
+            msg.setStyleSheet("color: #fca5a5; font-size: 13px; font-weight: bold;")
+        else:
+            short_name = os.path.basename(filepath) if filepath else ""
+            msg = QLabel(f"✅  Screenshot saved\n{short_name}")
+            msg.setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: bold;")
+            if filepath:
+                msg.setToolTip(filepath)
+
+        msg.setAlignment(Qt.AlignLeft)
+        vbox.addWidget(msg)
+
+        # "Show in Explorer" link — only on success
+        if not is_error and filepath:
+            link = QLabel('<a href="open" style="color:#6ee7b7; font-size:11px;">'
+                          '📂  Show in Explorer</a>')
+            link.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            link.setOpenExternalLinks(False)
+            link.linkActivated.connect(lambda _: self._open_in_explorer(filepath))
+            vbox.addWidget(link)
+
+        toast.adjustSize()
+        toast.setWindowOpacity(0.97)
+
+        # Anchor: horizontally centred, 60 px above the bottom of the primary screen
         sg = QApplication.primaryScreen().geometry()
-        toast.move(sg.x() + (sg.width() - toast.width()) // 2,
-                   sg.y() + sg.height() - toast.height() - 50)
+        toast.move(
+            sg.x() + (sg.width() - toast.width()) // 2,
+            sg.y() + sg.height() - toast.height() - 60,
+        )
         toast.show()
 
         if not hasattr(self, "_active_toasts"):
@@ -375,6 +506,19 @@ class CaptureOverlay(QWidget):
                 self._active_toasts.remove(toast)
 
         QTimer.singleShot(duration, _close)
+
+    @staticmethod
+    def _open_in_explorer(filepath: str) -> None:
+        """Open the containing folder and select/highlight the file."""
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(filepath)])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", filepath])
+            else:
+                subprocess.Popen(["xdg-open", os.path.dirname(filepath)])
+        except Exception as exc:
+            logger.warning(f"Could not open file manager: {exc}")
 
     # ── Close ──────────────────────────────────────────────────────────────────
 
