@@ -38,7 +38,7 @@ pip install PyQt5 keyboard
 ## Installation
 
 ```bash
-git clone https://github.com/gjdragon/memoshot.git
+git clone https://github.com/your-username/memoshot.git
 cd memoshot
 pip install PyQt5 keyboard
 python src/main.py

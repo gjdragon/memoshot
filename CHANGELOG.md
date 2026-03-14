@@ -1,5 +1,32 @@
 # Changelog
 
+All notable changes to MemoShot are documented here.  
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).  
+Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [1.2.0] — GUI redesign
+
+### Added
+
+- **Two-panel window layout** — the app now opens to a compact *Quick Capture* panel instead of the full settings form. A `⚙ Settings` button slides to the settings panel; `← Back` returns.
+- **Quick Capture panel** contains exactly three things: the Capture button (with hotkey label), a one-line status card showing last-capture dimensions and position, and a platform preset dropdown.
+- **Platform preset dropdown** on the Quick Capture panel — one click sets width and height for TikTok / IG Story (1080×1920), YouTube Shorts (1080×1920), IG Feed square (1080×1080), LinkedIn Banner (1584×396), Twitter/X Header (1500×500), and YouTube Thumbnail (1280×720). Selecting a preset automatically clears the ratio lock so pixels are exact.
+- **Tabbed Settings panel** with three tabs — *Capture* (hotkey, ratio mode, lock, dimensions), *Output* (save folder, file prefix, clipboard), *Profiles* (load / save / delete). Each tab is independently scrollable and expandable.
+- **Stylesheet constants** (`_PURPLE`, `_SURFACE`, `_BORDER`, etc.) defined once at the top of `main_window.py` — easy to retheme without hunting through code.
+- **`_section_label` / `_divider` helpers** — reusable within every tab, enforcing consistent typography and spacing.
+
+### Changed
+
+- Window width fixed at 380 px; height auto-adjusts to whichever panel is active (`adjustSize()`).
+- `_on_capture_complete` now calls `_refresh_status_card` to update the Quick panel immediately after each capture.
+- `_on_overlay_dimensions_changed` now also calls `_sync_preset_combo` and `_refresh_status_card` so the Quick panel stays in sync when the overlay resizes.
+- `_flush_auto_save` updates the Capture button label live if the hotkey changed, without requiring the user to close and reopen.
+- Profiles moved into their own dedicated tab — no longer occupies permanent space on every window open.
+- Last-region and ratio labels consolidated into the one-line status card on the Quick panel.
+- Version bumped to `1.2.0`.
+
 ---
 
 ## [1.1.0] — Pass 1 improvements

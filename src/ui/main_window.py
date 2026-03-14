@@ -1,9 +1,20 @@
 """
 ui/main_window.py
 ~~~~~~~~~~~~~~~~~
-Main application window and system-tray integration.
-Delegates all data concerns to core.settings and hotkey management
-to core.hotkey.
+Main application window — two-panel design:
+
+  Quick Capture panel  (default, compact)
+    • Full-width Capture button showing the hotkey
+    • One-line last-capture status card
+    • Platform preset dropdown
+    • Icon toolbar: ⚙ Settings  |  _ Minimize  |  ✕ Exit
+
+  Settings panel  (opens on ⚙, replaces the Quick panel)
+    Three tabs — Capture / Output / Profiles
+    Close button returns to Quick panel.
+
+All data concerns: core.settings
+Hotkey management:  core.hotkey
 """
 
 import core.settings as cfg
@@ -14,13 +25,14 @@ from version import __version__
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor, QIcon, QPixmap
+from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -32,7 +44,9 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSpinBox,
+    QStackedWidget,
     QSystemTrayIcon,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -41,139 +55,311 @@ logger = get_logger(__name__)
 
 APP_VERSION = __version__
 
+# ── Platform presets ───────────────────────────────────────────────────────────
+# (name, width, height)
+PLATFORM_PRESETS = [
+    ("Custom",               None, None),
+    ("TikTok / IG Story",    1080, 1920),
+    ("YouTube Shorts",       1080, 1920),
+    ("IG Feed (square)",     1080, 1080),
+    ("LinkedIn Banner",      1584,  396),
+    ("Twitter / X Header",   1500,  500),
+    ("YouTube Thumbnail",    1280,  720),
+]
+
+# ── Stylesheet constants ───────────────────────────────────────────────────────
+_PURPLE        = "#9333ea"
+_PURPLE_DARK   = "#7e22ce"
+_SURFACE       = "#f8f7ff"
+_BORDER        = "#e2e0ee"
+_TEXT_MUTED    = "#64748b"
+_TEXT_PRIMARY  = "#1e1b4b"
+_SUCCESS       = "#10b981"
+_DANGER        = "#dc2626"
+_DANGER_DARK   = "#b91c1c"
+
+STYLE_CAPTURE_BTN = f"""
+QPushButton {{
+    background-color: {_PURPLE};
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: bold;
+    padding: 16px 24px;
+}}
+QPushButton:hover  {{ background-color: {_PURPLE_DARK}; }}
+QPushButton:pressed {{ background-color: {_PURPLE_DARK}; padding-top: 17px; }}
+"""
+
+STYLE_ICON_BTN = f"""
+QPushButton {{
+    background-color: transparent;
+    color: {_TEXT_MUTED};
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    font-size: 14px;
+    padding: 5px 10px;
+}}
+QPushButton:hover  {{ background-color: {_SURFACE}; color: {_TEXT_PRIMARY}; }}
+QPushButton:pressed {{ background-color: {_BORDER}; }}
+"""
+
+STYLE_EXIT_BTN = f"""
+QPushButton {{
+    background-color: transparent;
+    color: {_DANGER};
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    font-size: 14px;
+    padding: 5px 10px;
+}}
+QPushButton:hover  {{ background-color: #fef2f2; border-color: {_DANGER}; }}
+QPushButton:pressed {{ background-color: #fee2e2; }}
+"""
+
+STYLE_CLOSE_BTN = f"""
+QPushButton {{
+    background-color: transparent;
+    color: {_TEXT_MUTED};
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 4px 12px;
+}}
+QPushButton:hover  {{ background-color: {_SURFACE}; color: {_TEXT_PRIMARY}; }}
+"""
+
+STYLE_STATUS_CARD = f"""
+QFrame {{
+    background-color: {_SURFACE};
+    border: 1px solid {_BORDER};
+    border-radius: 8px;
+}}
+"""
+
+STYLE_TAB = f"""
+QTabWidget::pane {{
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    background: white;
+}}
+QTabBar::tab {{
+    padding: 6px 18px;
+    color: {_TEXT_MUTED};
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-right: 2px;
+    font-size: 12px;
+}}
+QTabBar::tab:selected {{
+    color: {_PURPLE};
+    border-bottom: 2px solid {_PURPLE};
+    font-weight: bold;
+}}
+QTabBar::tab:hover:!selected {{ color: {_TEXT_PRIMARY}; }}
+"""
+
+STYLE_AUTOSAVE = f"color: {_SUCCESS}; font-size: 10px; font-style: italic;"
+STYLE_LABEL_MUTED = f"color: {_TEXT_MUTED}; font-size: 10px;"
+STYLE_LABEL_HINT  = f"color: {_SUCCESS}; font-size: 10px; font-style: italic;"
+STYLE_SECTION_HDR = f"color: {_TEXT_PRIMARY}; font-size: 11px; font-weight: bold;"
+
 
 class PortraitScreenshotApp(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.settings = cfg.load()
         self.overlay: Optional[CaptureOverlay] = None
-        self.hotkey_thread: HotkeyThread | None = None
+        self.hotkey_thread: Optional[HotkeyThread] = None
         self.is_exiting = False
 
-        # ── Auto-save debounce timer ───────────────────────────────────────────
-        # Fires 600 ms after the last setting change so rapid spin-box clicks
-        # don't hammer the disk on every step.
+        # Debounce timer — 600 ms after the last change
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(600)
         self._save_timer.timeout.connect(self._flush_auto_save)
 
         self.setWindowTitle(f"MemoShot v{APP_VERSION}")
-        self.setGeometry(300, 300, 450, 350)
+        # Fixed width; height is determined by content
+        self.setFixedWidth(380)
 
         self._init_ui()
         self._init_tray()
 
         QTimer.singleShot(500, self._register_hotkey)
 
-    # ── UI construction ────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # UI construction
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _init_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout()
-        layout.setSpacing(15)
 
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # QStackedWidget holds Quick panel (index 0) and Settings panel (index 1)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self._build_quick_panel())
+        self.stack.addWidget(self._build_settings_panel())
+        self.stack.setCurrentIndex(0)
+
+        root.addWidget(self.stack)
+        self.adjustSize()
+
+    # ── Quick Capture panel ────────────────────────────────────────────────────
+
+    def _build_quick_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(20, 20, 20, 16)
+        layout.setSpacing(12)
+
+        # App title
         title = QLabel("MemoShot")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setStyleSheet(
+            f"font-size: 17px; font-weight: bold; color: {_TEXT_PRIMARY};"
+        )
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
-        layout.addWidget(self._build_profiles_group())
-        layout.addWidget(self._build_settings_group())
-        layout.addLayout(self._build_action_buttons())
+        # ── Big Capture button ─────────────────────────────────────────────────
+        hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
+        self.capture_btn = QPushButton(f"Capture  —  {hotkey}")
+        self.capture_btn.setStyleSheet(STYLE_CAPTURE_BTN)
+        self.capture_btn.setMinimumHeight(58)
+        self.capture_btn.clicked.connect(self.start_capture)
+        layout.addWidget(self.capture_btn)
 
-        info = QLabel(f"Press {self.settings['hotkey'].upper()} to capture\nRuns in system tray when minimized")
-        info.setStyleSheet("color: gray; font-size: 10px;")
-        info.setAlignment(Qt.AlignCenter)
-        layout.addWidget(info)
+        # ── Status card ────────────────────────────────────────────────────────
+        status_frame = QFrame()
+        status_frame.setStyleSheet(STYLE_STATUS_CARD)
+        sf_layout = QVBoxLayout(status_frame)
+        sf_layout.setContentsMargins(12, 8, 12, 8)
+        sf_layout.setSpacing(3)
 
-        central.setLayout(layout)
+        self.status_label = QLabel()
+        self.status_label.setStyleSheet(f"color: {_TEXT_PRIMARY}; font-size: 12px;")
+        self.status_label.setAlignment(Qt.AlignLeft)
+        sf_layout.addWidget(self.status_label)
 
-    def _build_profiles_group(self) -> QGroupBox:
-        group = QGroupBox("Profiles")
-        row = QHBoxLayout()
+        self.status_sub = QLabel("No previous capture")
+        self.status_sub.setStyleSheet(STYLE_LABEL_MUTED)
+        sf_layout.addWidget(self.status_sub)
 
-        row.addWidget(QLabel("Profile:"))
-        self.profile_combo = QComboBox()
-        self.profile_combo.setMinimumWidth(150)
-        self.profile_combo.addItem("— select profile —")
-        for name in cfg.list_profiles(self.settings):
-            self.profile_combo.addItem(name)
-        row.addWidget(self.profile_combo, 3)
+        layout.addWidget(status_frame)
+        self._refresh_status_card()
 
-        for label, slot in [("Load", self._load_profile),
-                             ("Save as…", self._save_profile),
-                             ("Delete", self._delete_profile)]:
-            btn = QPushButton(label)
-            btn.clicked.connect(slot)
-            row.addWidget(btn)
+        # ── Platform preset dropdown ───────────────────────────────────────────
+        preset_row = QHBoxLayout()
+        preset_lbl = QLabel("Preset:")
+        preset_lbl.setStyleSheet(f"color: {_TEXT_MUTED}; font-size: 12px;")
+        preset_row.addWidget(preset_lbl)
 
-        group.setLayout(row)
-        return group
+        self.preset_combo = QComboBox()
+        self.preset_combo.setStyleSheet(f"font-size: 12px;")
+        for name, w, h in PLATFORM_PRESETS:
+            label = name if w is None else f"{name}  ({w}×{h})"
+            self.preset_combo.addItem(label)
+        self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
+        self._sync_preset_combo()
+        preset_row.addWidget(self.preset_combo, 1)
+        layout.addLayout(preset_row)
 
-    def _build_settings_group(self) -> QGroupBox:
-        group = QGroupBox("Settings")
-        layout = QVBoxLayout()
+        # ── Icon toolbar: ⚙  |  Minimize  |  Exit ─────────────────────────────
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(6)
+
+        settings_btn = QPushButton("⚙  Settings")
+        settings_btn.setStyleSheet(STYLE_ICON_BTN)
+        settings_btn.setToolTip("Open settings")
+        settings_btn.clicked.connect(lambda: self.stack.setCurrentIndex(1))
+        toolbar.addWidget(settings_btn)
+
+        toolbar.addStretch()
+
+        minimize_btn = QPushButton("_ Tray")
+        minimize_btn.setStyleSheet(STYLE_ICON_BTN)
+        minimize_btn.setToolTip("Minimize to system tray")
+        minimize_btn.clicked.connect(self.hide)
+        toolbar.addWidget(minimize_btn)
+
+        exit_btn = QPushButton("✕ Exit")
+        exit_btn.setStyleSheet(STYLE_EXIT_BTN)
+        exit_btn.setToolTip("Exit MemoShot")
+        exit_btn.clicked.connect(self._quit_app)
+        toolbar.addWidget(exit_btn)
+
+        layout.addLayout(toolbar)
+
+        return panel
+
+    # ── Settings panel ─────────────────────────────────────────────────────────
+
+    def _build_settings_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+
+        # Header row: "Settings" title + ← Back button
+        hdr = QHBoxLayout()
+        hdr_title = QLabel("Settings")
+        hdr_title.setStyleSheet(
+            f"font-size: 15px; font-weight: bold; color: {_TEXT_PRIMARY};"
+        )
+        hdr.addWidget(hdr_title)
+        hdr.addStretch()
+
+        back_btn = QPushButton("← Back")
+        back_btn.setStyleSheet(STYLE_CLOSE_BTN)
+        back_btn.clicked.connect(self._close_settings)
+        hdr.addWidget(back_btn)
+        layout.addLayout(hdr)
+
+        # ── Tab widget ─────────────────────────────────────────────────────────
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet(STYLE_TAB)
+        self.tabs.addTab(self._build_tab_capture(), "Capture")
+        self.tabs.addTab(self._build_tab_output(),  "Output")
+        self.tabs.addTab(self._build_tab_profiles(), "Profiles")
+        layout.addWidget(self.tabs)
+
+        # Auto-save indicator
+        self.autosave_label = QLabel("✔  Settings saved")
+        self.autosave_label.setStyleSheet(STYLE_AUTOSAVE)
+        self.autosave_label.setAlignment(Qt.AlignRight)
+        self.autosave_label.setVisible(False)
+        layout.addWidget(self.autosave_label)
+
+        return panel
+
+    # ── Tab: Capture ──────────────────────────────────────────────────────────
+
+    def _build_tab_capture(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
         # Hotkey
-        hl = QHBoxLayout()
-        hl.addWidget(QLabel("Hotkey:"))
+        layout.addWidget(self._section_label("Hotkey"))
         self.hotkey_input = QLineEdit(self.settings["hotkey"])
         self.hotkey_input.setPlaceholderText("e.g., ctrl+shift+p")
         self.hotkey_input.editingFinished.connect(self._schedule_auto_save)
-        hl.addWidget(self.hotkey_input)
-        layout.addLayout(hl)
+        layout.addWidget(self.hotkey_input)
 
-        # Save location
-        sl = QHBoxLayout()
-        sl.addWidget(QLabel("Save to:"))
-        self.save_input = QLineEdit(self.settings["save_location"])
-        self.save_input.editingFinished.connect(self._schedule_auto_save)
-        browse_btn = QPushButton("Browse")
-        browse_btn.clicked.connect(self._browse_folder)
-        sl.addWidget(self.save_input, 3)
-        sl.addWidget(browse_btn, 1)
-        layout.addLayout(sl)
+        layout.addWidget(self._divider())
 
-        # File prefix
-        pl = QHBoxLayout()
-        pl.addWidget(QLabel("File prefix:"))
-        self.prefix_input = QLineEdit(self.settings.get("file_prefix", ""))
-        self.prefix_input.setPlaceholderText("Leave empty for timestamp, or enter prefix")
-        self.prefix_input.editingFinished.connect(self._schedule_auto_save)
-        pl.addWidget(self.prefix_input)
-        layout.addLayout(pl)
-
-        # Width / Height
-        dl = QHBoxLayout()
-        dl.addWidget(QLabel("Width:"))
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(100, 4000)
-        self.width_spin.setValue(self.settings["portrait_width"])
-        self.width_spin.valueChanged.connect(self._on_width_changed)
-        self.width_spin.valueChanged.connect(self._schedule_auto_save)
-        dl.addWidget(self.width_spin)
-        dl.addWidget(QLabel("Height:"))
-        self.height_spin = QSpinBox()
-        self.height_spin.setRange(100, 4000)
-        self.height_spin.setValue(self.settings["portrait_height"])
-        self.height_spin.valueChanged.connect(self._on_height_changed)
-        self.height_spin.valueChanged.connect(self._schedule_auto_save)
-        dl.addWidget(self.height_spin)
-        layout.addLayout(dl)
-
-        # Ratio lock + radio buttons
-        rl = QHBoxLayout()
-        self.lock_ratio_checkbox = QCheckBox("Lock Aspect Ratio")
-        self.lock_ratio_checkbox.setChecked(self.settings.get("lock_ratio", True))
-        self.lock_ratio_checkbox.stateChanged.connect(self._on_lock_ratio_changed)
-        self.lock_ratio_checkbox.stateChanged.connect(self._schedule_auto_save)
-        rl.addWidget(self.lock_ratio_checkbox)
-
+        # Aspect ratio
+        layout.addWidget(self._section_label("Aspect ratio"))
+        ratio_row = QHBoxLayout()
         self.ratio_group = QButtonGroup()
-        self.ratio_9_16 = QRadioButton("9:16 (Portrait)")
-        self.ratio_16_9 = QRadioButton("16:9 (Landscape)")
+        self.ratio_9_16 = QRadioButton("9:16  Portrait")
+        self.ratio_16_9 = QRadioButton("16:9  Landscape")
         self.ratio_group.addButton(self.ratio_9_16)
         self.ratio_group.addButton(self.ratio_16_9)
         (self.ratio_9_16 if self.settings.get("ratio_mode", "9:16") == "9:16"
@@ -182,63 +368,222 @@ class PortraitScreenshotApp(QMainWindow):
         self.ratio_16_9.toggled.connect(self._on_ratio_mode_changed)
         self.ratio_9_16.toggled.connect(self._schedule_auto_save)
         self.ratio_16_9.toggled.connect(self._schedule_auto_save)
-        rl.addWidget(self.ratio_9_16)
-        rl.addWidget(self.ratio_16_9)
-        rl.addStretch()
-        layout.addLayout(rl)
+        ratio_row.addWidget(self.ratio_9_16)
+        ratio_row.addWidget(self.ratio_16_9)
+        ratio_row.addStretch()
+        layout.addLayout(ratio_row)
+
+        # Lock ratio checkbox
+        self.lock_ratio_checkbox = QCheckBox("Lock aspect ratio")
+        self.lock_ratio_checkbox.setChecked(self.settings.get("lock_ratio", True))
+        self.lock_ratio_checkbox.stateChanged.connect(self._on_lock_ratio_changed)
+        self.lock_ratio_checkbox.stateChanged.connect(self._schedule_auto_save)
+        layout.addWidget(self.lock_ratio_checkbox)
+
+        layout.addWidget(self._divider())
+
+        # Dimensions
+        layout.addWidget(self._section_label("Dimensions"))
+        dim_row = QHBoxLayout()
+        dim_row.setSpacing(8)
+        dim_row.addWidget(QLabel("W:"))
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(100, 4000)
+        self.width_spin.setValue(self.settings["portrait_width"])
+        self.width_spin.valueChanged.connect(self._on_width_changed)
+        self.width_spin.valueChanged.connect(self._schedule_auto_save)
+        dim_row.addWidget(self.width_spin)
+        dim_row.addWidget(QLabel("H:"))
+        self.height_spin = QSpinBox()
+        self.height_spin.setRange(100, 4000)
+        self.height_spin.setValue(self.settings["portrait_height"])
+        self.height_spin.valueChanged.connect(self._on_height_changed)
+        self.height_spin.valueChanged.connect(self._schedule_auto_save)
+        dim_row.addWidget(self.height_spin)
+        dim_row.addWidget(QLabel("px"))
+        dim_row.addStretch()
+        layout.addLayout(dim_row)
 
         self.ratio_label = QLabel()
-        self.ratio_label.setStyleSheet("color: #10b981; font-size: 10px; font-style: italic;")
+        self.ratio_label.setStyleSheet(STYLE_LABEL_HINT)
         layout.addWidget(self.ratio_label)
-        self._on_lock_ratio_changed()   # sets enabled state + updates label
+        self._on_lock_ratio_changed()   # sets enabled state + initial label
 
-        # Last region status
-        self.last_region_label = QLabel()
-        self.last_region_label.setStyleSheet("color: #3b82f6; font-size: 10px; font-style: italic;")
-        layout.addWidget(self.last_region_label)
-        self._update_last_region_label()
+        layout.addStretch()
+        return tab
 
-        # Clipboard checkbox
-        cl = QHBoxLayout()
-        self.copy_to_clipboard_checkbox = QCheckBox("Copy screenshot to clipboard")
+    # ── Tab: Output ───────────────────────────────────────────────────────────
+
+    def _build_tab_output(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        # Save folder
+        layout.addWidget(self._section_label("Save folder"))
+        folder_row = QHBoxLayout()
+        self.save_input = QLineEdit(self.settings["save_location"])
+        self.save_input.editingFinished.connect(self._schedule_auto_save)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.setStyleSheet(STYLE_ICON_BTN)
+        browse_btn.setFixedWidth(72)
+        browse_btn.clicked.connect(self._browse_folder)
+        folder_row.addWidget(self.save_input, 1)
+        folder_row.addWidget(browse_btn)
+        layout.addLayout(folder_row)
+
+        layout.addWidget(self._divider())
+
+        # File prefix
+        layout.addWidget(self._section_label("File prefix"))
+        self.prefix_input = QLineEdit(self.settings.get("file_prefix", ""))
+        self.prefix_input.setPlaceholderText("Empty = timestamp  |  prefix1.png, prefix2.png…")
+        self.prefix_input.editingFinished.connect(self._schedule_auto_save)
+        layout.addWidget(self.prefix_input)
+
+        layout.addWidget(self._divider())
+
+        # Clipboard
+        layout.addWidget(self._section_label("Clipboard"))
+        self.copy_to_clipboard_checkbox = QCheckBox("Copy each screenshot to clipboard")
         self.copy_to_clipboard_checkbox.setChecked(self.settings.get("copy_to_clipboard", True))
         self.copy_to_clipboard_checkbox.stateChanged.connect(self._schedule_auto_save)
-        cl.addWidget(self.copy_to_clipboard_checkbox)
-        cl.addStretch()
-        layout.addLayout(cl)
+        layout.addWidget(self.copy_to_clipboard_checkbox)
 
-        # Auto-save indicator — replaces the old "Save Settings" button.
-        # Appears briefly after each save and fades automatically.
-        self.autosave_label = QLabel("✔  Settings saved")
-        self.autosave_label.setStyleSheet(
-            "color: #10b981; font-size: 10px; font-style: italic;"
+        layout.addStretch()
+        return tab
+
+    # ── Tab: Profiles ─────────────────────────────────────────────────────────
+
+    def _build_tab_profiles(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        layout.addWidget(self._section_label("Saved profiles"))
+
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItem("— select profile —")
+        for name in cfg.list_profiles(self.settings):
+            self.profile_combo.addItem(name)
+        layout.addWidget(self.profile_combo)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+        for label, slot in [("Load", self._load_profile),
+                             ("Save as…", self._save_profile),
+                             ("Delete", self._delete_profile)]:
+            btn = QPushButton(label)
+            btn.setStyleSheet(STYLE_ICON_BTN)
+            btn.clicked.connect(slot)
+            btn_row.addWidget(btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        hint = QLabel(
+            "Profiles save a complete snapshot of all settings —\n"
+            "hotkey, folder, prefix, dimensions, ratio, clipboard."
         )
-        self.autosave_label.setAlignment(Qt.AlignRight)
-        self.autosave_label.setVisible(False)
-        layout.addWidget(self.autosave_label)
+        hint.setStyleSheet(STYLE_LABEL_MUTED)
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
 
-        group.setLayout(layout)
-        return group
+        layout.addStretch()
+        return tab
 
-    def _build_action_buttons(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        capture_btn = QPushButton("Capture Now")
-        capture_btn.setStyleSheet("padding: 10px; font-weight: bold;")
-        capture_btn.clicked.connect(self.start_capture)
-        row.addWidget(capture_btn)
+    # ── Helper widgets ─────────────────────────────────────────────────────────
 
-        minimize_btn = QPushButton("Minimize to Tray")
-        minimize_btn.clicked.connect(self.hide)
-        row.addWidget(minimize_btn)
+    @staticmethod
+    def _section_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(STYLE_SECTION_HDR)
+        return lbl
 
-        exit_btn = QPushButton("Exit Application")
-        exit_btn.setStyleSheet("background-color: #dc2626; color: white; padding: 8px;")
-        exit_btn.clicked.connect(self._quit_app)
-        row.addWidget(exit_btn)
+    @staticmethod
+    def _divider() -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet(f"color: {_BORDER};")
+        return line
 
-        return row
+    # ══════════════════════════════════════════════════════════════════════════
+    # Panel navigation
+    # ══════════════════════════════════════════════════════════════════════════
 
-    # ── Tray ──────────────────────────────────────────────────────────────────
+    def _close_settings(self) -> None:
+        """Return to Quick Capture and refresh anything the user may have changed."""
+        self._refresh_status_card()
+        self._sync_preset_combo()
+        # Update the Capture button label in case the hotkey changed
+        hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
+        self.capture_btn.setText(f"Capture  —  {hotkey}")
+        self.stack.setCurrentIndex(0)
+        self.adjustSize()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Status card & preset helpers
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _refresh_status_card(self) -> None:
+        """Update the one-line status card on the Quick Capture panel."""
+        mode = self.settings.get("ratio_mode", "9:16")
+        w = self.settings.get("portrait_width", 607)
+        h = self.settings.get("portrait_height", 1080)
+        mode_label = "Portrait (9:16)" if mode == "9:16" else "Landscape (16:9)"
+
+        rect = self.settings.get(f"last_capture_rect_{mode}")
+        if rect:
+            self.status_label.setText(
+                f"{rect['width']} × {rect['height']} px  ·  {mode_label}"
+            )
+            self.status_sub.setText(
+                f"Last region at ({rect['x']}, {rect['y']})"
+            )
+        else:
+            self.status_label.setText(f"{w} × {h} px  ·  {mode_label}")
+            self.status_sub.setText("No previous capture")
+
+    def _sync_preset_combo(self) -> None:
+        """Set the preset combo to match current width/height, or 'Custom'."""
+        w = self.settings.get("portrait_width")
+        h = self.settings.get("portrait_height")
+        for i, (_, pw, ph) in enumerate(PLATFORM_PRESETS):
+            if pw == w and ph == h:
+                self.preset_combo.blockSignals(True)
+                self.preset_combo.setCurrentIndex(i)
+                self.preset_combo.blockSignals(False)
+                return
+        # No match → Custom
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.setCurrentIndex(0)
+        self.preset_combo.blockSignals(False)
+
+    def _on_preset_changed(self, index: int) -> None:
+        _, w, h = PLATFORM_PRESETS[index]
+        if w is None:
+            return  # Custom — don't touch dimensions
+        # Push dimensions into settings and spin-boxes
+        self.settings["portrait_width"]  = w
+        self.settings["portrait_height"] = h
+        self.settings["lock_ratio"] = False   # preset sets exact pixels; ratio free
+        self.width_spin.blockSignals(True)
+        self.height_spin.blockSignals(True)
+        self.width_spin.setValue(w)
+        self.height_spin.setValue(h)
+        self.width_spin.blockSignals(False)
+        self.height_spin.blockSignals(False)
+        self.lock_ratio_checkbox.blockSignals(True)
+        self.lock_ratio_checkbox.setChecked(False)
+        self.lock_ratio_checkbox.blockSignals(False)
+        self._update_ratio_label()
+        self._refresh_status_card()
+        self._schedule_auto_save()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Tray
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _init_tray(self) -> None:
         self.tray_icon = QSystemTrayIcon(self)
@@ -260,14 +605,18 @@ class PortraitScreenshotApp(QMainWindow):
         self.tray_icon.setContextMenu(menu)
         self.tray_icon.activated.connect(self._on_tray_click)
         self.tray_icon.show()
-        self.tray_icon.setToolTip(f"MemoShot\nPress {self.settings['hotkey'].upper()}")
+        self.tray_icon.setToolTip(
+            f"MemoShot\nPress {self.settings['hotkey'].upper()}"
+        )
 
     def _on_tray_click(self, reason) -> None:
         if reason == QSystemTrayIcon.Trigger and not self.isVisible():
             self.show()
             self.activateWindow()
 
-    # ── Hotkey management ──────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # Hotkey management
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _register_hotkey(self) -> None:
         if self.is_exiting:
@@ -282,10 +631,14 @@ class PortraitScreenshotApp(QMainWindow):
             logger.info(f"Hotkey registered: {self.settings['hotkey']}")
         except Exception as exc:
             logger.error(f"Could not register hotkey: {exc}")
-            QMessageBox.warning(self, "Hotkey Error",
-                                f"Could not register hotkey: {self.settings['hotkey']}\n{exc}")
+            QMessageBox.warning(
+                self, "Hotkey Error",
+                f"Could not register hotkey: {self.settings['hotkey']}\n{exc}"
+            )
 
-    # ── Capture flow ──────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # Capture flow
+    # ══════════════════════════════════════════════════════════════════════════
 
     def start_capture(self) -> None:
         if self.is_exiting:
@@ -294,7 +647,9 @@ class PortraitScreenshotApp(QMainWindow):
             if self.overlay is None or not self.overlay.isVisible():
                 self.overlay = CaptureOverlay(self.settings)
                 self.overlay.capture_signal.connect(self._on_capture_complete)
-                self.overlay.update_ui_dimensions.connect(self._on_overlay_dimensions_changed)
+                self.overlay.update_ui_dimensions.connect(
+                    self._on_overlay_dimensions_changed
+                )
                 self.overlay.show()
                 self.overlay.activateWindow()
                 self.overlay.raise_()
@@ -302,7 +657,7 @@ class PortraitScreenshotApp(QMainWindow):
             logger.error(f"Error starting capture: {exc}")
 
     def _on_capture_complete(self, rect) -> None:
-        self._update_last_region_label()
+        self._refresh_status_card()
         cfg.save(self.settings)
 
     def _on_overlay_dimensions_changed(self, width: int, height: int) -> None:
@@ -313,8 +668,12 @@ class PortraitScreenshotApp(QMainWindow):
         self.width_spin.blockSignals(False)
         self.height_spin.blockSignals(False)
         self._update_ratio_label()
+        self._sync_preset_combo()
+        self._refresh_status_card()
 
-    # ── Auto-save ─────────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # Auto-save
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _schedule_auto_save(self, *_args) -> None:
         """Restart the debounce timer on every settings change."""
@@ -328,13 +687,18 @@ class PortraitScreenshotApp(QMainWindow):
         cfg.save(self.settings)
         if old_hotkey != self.settings["hotkey"]:
             self._register_hotkey()
-        self.tray_icon.setToolTip(f"MemoShot\nPress {self.settings['hotkey'].upper()}")
+            hotkey = self.settings["hotkey"].upper()
+            self.capture_btn.setText(f"Capture  —  {hotkey}")
+        self.tray_icon.setToolTip(
+            f"MemoShot\nPress {self.settings['hotkey'].upper()}"
+        )
         logger.info("Settings auto-saved")
-        # Brief confirmation — visible for 2.5 s then disappears
         self.autosave_label.setVisible(True)
         QTimer.singleShot(2500, lambda: self.autosave_label.setVisible(False))
 
-    # ── Settings panel helpers ─────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # Settings helpers
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Save Location")
@@ -348,7 +712,7 @@ class PortraitScreenshotApp(QMainWindow):
             ratio = 16 / 9 if self.settings.get("ratio_mode", "9:16") == "9:16" else 9 / 16
             self.height_spin.setValue(int(value * ratio))
             self.height_spin.blockSignals(False)
-            self._update_ratio_label()
+        self._update_ratio_label()
 
     def _on_height_changed(self, value: int) -> None:
         if self.settings.get("lock_ratio", True):
@@ -356,7 +720,7 @@ class PortraitScreenshotApp(QMainWindow):
             ratio = 9 / 16 if self.settings.get("ratio_mode", "9:16") == "9:16" else 16 / 9
             self.width_spin.setValue(int(value * ratio))
             self.width_spin.blockSignals(False)
-            self._update_ratio_label()
+        self._update_ratio_label()
 
     def _on_lock_ratio_changed(self) -> None:
         locked = self.lock_ratio_checkbox.isChecked()
@@ -382,7 +746,7 @@ class PortraitScreenshotApp(QMainWindow):
             w, h = 1920, 1080
         self.width_spin.setValue(w)
         self.height_spin.setValue(h)
-        self.settings["portrait_width"] = w
+        self.settings["portrait_width"]  = w
         self.settings["portrait_height"] = h
         self.settings["lock_ratio"] = was_locked
         self.width_spin.blockSignals(False)
@@ -392,35 +756,30 @@ class PortraitScreenshotApp(QMainWindow):
     def _update_ratio_label(self) -> None:
         if self.settings.get("lock_ratio", True):
             mode = self.settings.get("ratio_mode", "9:16")
-            if mode == "9:16":
-                self.ratio_label.setText("Ratio: 9:16 (Portrait – YouTube Shorts/TikTok/Instagram)")
-            else:
-                self.ratio_label.setText("Ratio: 16:9 (Landscape – YouTube/Standard Video)")
+            text = (
+                "9:16  —  YouTube Shorts / TikTok / Instagram"
+                if mode == "9:16"
+                else "16:9  —  YouTube / standard video"
+            )
         else:
-            w, h = self.width_spin.value(), self.height_spin.value()
-            self.ratio_label.setText(f"Custom dimensions: {w} × {h} px (ratio unlocked)")
+            w = self.width_spin.value()
+            h = self.height_spin.value()
+            text = f"Custom  {w} × {h} px  (ratio unlocked)"
+        self.ratio_label.setText(text)
 
-    def _update_last_region_label(self) -> None:
-        parts = []
-        for mode, label in [("9:16", "Portrait (9:16)"), ("16:9", "Landscape (16:9)")]:
-            rect = self.settings.get(f"last_capture_rect_{mode}")
-            if rect:
-                parts.append(f"{label}: {rect['width']}×{rect['height']} at ({rect['x']}, {rect['y']})")
-        self.last_region_label.setText(
-            "Last regions: " + " | ".join(parts) if parts else "No previous capture regions saved"
-        )
-
-    # ── Profile management ─────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # Profile management
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _snapshot_ui_to_settings(self) -> None:
-        """Flush all UI control values into self.settings before snapshotting."""
-        self.settings["hotkey"] = self.hotkey_input.text()
-        self.settings["save_location"] = self.save_input.text()
-        self.settings["file_prefix"] = self.prefix_input.text()
-        self.settings["portrait_width"] = self.width_spin.value()
-        self.settings["portrait_height"] = self.height_spin.value()
-        self.settings["lock_ratio"] = self.lock_ratio_checkbox.isChecked()
-        self.settings["ratio_mode"] = "9:16" if self.ratio_9_16.isChecked() else "16:9"
+        """Flush all UI control values into self.settings."""
+        self.settings["hotkey"]           = self.hotkey_input.text()
+        self.settings["save_location"]    = self.save_input.text()
+        self.settings["file_prefix"]      = self.prefix_input.text()
+        self.settings["portrait_width"]   = self.width_spin.value()
+        self.settings["portrait_height"]  = self.height_spin.value()
+        self.settings["lock_ratio"]       = self.lock_ratio_checkbox.isChecked()
+        self.settings["ratio_mode"]       = "9:16" if self.ratio_9_16.isChecked() else "16:9"
         self.settings["copy_to_clipboard"] = self.copy_to_clipboard_checkbox.isChecked()
 
     def _refresh_profile_combo(self) -> None:
@@ -443,7 +802,9 @@ class PortraitScreenshotApp(QMainWindow):
         idx = self.profile_combo.findText(name)
         if idx >= 0:
             self.profile_combo.setCurrentIndex(idx)
-        QMessageBox.information(self, "Profile Saved", f'Profile "{name}" saved successfully!')
+        QMessageBox.information(
+            self, "Profile Saved", f'Profile "{name}" saved successfully!'
+        )
 
     def _load_profile(self) -> None:
         name = self.profile_combo.currentText()
@@ -451,9 +812,11 @@ class PortraitScreenshotApp(QMainWindow):
             QMessageBox.warning(self, "No Profile Selected", "Please select a profile first.")
             return
         if not cfg.load_profile(self.settings, name):
-            QMessageBox.warning(self, "Profile Not Found", f'Profile "{name}" could not be found.')
+            QMessageBox.warning(
+                self, "Profile Not Found", f'Profile "{name}" could not be found.'
+            )
             return
-        # Refresh UI
+        # Push profile values back into every UI control
         self.hotkey_input.setText(self.settings.get("hotkey", "ctrl+shift+p"))
         self.save_input.setText(self.settings.get("save_location", ""))
         self.prefix_input.setText(self.settings.get("file_prefix", ""))
@@ -466,33 +829,47 @@ class PortraitScreenshotApp(QMainWindow):
         self.lock_ratio_checkbox.setChecked(self.settings.get("lock_ratio", True))
         (self.ratio_9_16 if self.settings.get("ratio_mode", "9:16") == "9:16"
          else self.ratio_16_9).setChecked(True)
-        self.copy_to_clipboard_checkbox.setChecked(self.settings.get("copy_to_clipboard", True))
+        self.copy_to_clipboard_checkbox.setChecked(
+            self.settings.get("copy_to_clipboard", True)
+        )
         self._update_ratio_label()
-        self._update_last_region_label()
+        self._refresh_status_card()
+        self._sync_preset_combo()
         old_hotkey = self.settings.get("hotkey")
         cfg.save(self.settings)
         if old_hotkey != self.hotkey_input.text():
             self._register_hotkey()
-        QMessageBox.information(self, "Profile Loaded", f'Profile "{name}" loaded successfully!')
+        QMessageBox.information(
+            self, "Profile Loaded", f'Profile "{name}" loaded successfully!'
+        )
 
     def _delete_profile(self) -> None:
         name = self.profile_combo.currentText()
         if name == "— select profile —" or not name:
             QMessageBox.warning(self, "No Profile Selected", "Please select a profile first.")
             return
-        reply = QMessageBox.question(self, "Delete Profile",
-                                     f'Are you sure you want to delete "{name}"?',
-                                     QMessageBox.Yes | QMessageBox.No)
+        reply = QMessageBox.question(
+            self, "Delete Profile",
+            f'Are you sure you want to delete "{name}"?',
+            QMessageBox.Yes | QMessageBox.No,
+        )
         if reply != QMessageBox.Yes:
             return
         cfg.delete_profile(self.settings, name)
         self._refresh_profile_combo()
 
-    # ── App lifecycle ──────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # App lifecycle
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _quit_app(self) -> None:
-        if QMessageBox.question(self, "Exit", "Are you sure you want to exit?",
-                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+        if (
+            QMessageBox.question(
+                self, "Exit", "Are you sure you want to exit?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            == QMessageBox.Yes
+        ):
             self.close()
 
     def closeEvent(self, event) -> None:
@@ -513,4 +890,7 @@ class PortraitScreenshotApp(QMainWindow):
         except Exception as exc:
             logger.error(f"Error hiding tray icon: {exc}")
         event.accept()
-        QTimer.singleShot(100, __import__("PyQt5.QtWidgets", fromlist=["QApplication"]).QApplication.quit)
+        QTimer.singleShot(
+            100,
+            __import__("PyQt5.QtWidgets", fromlist=["QApplication"]).QApplication.quit,
+        )
