@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup Env (.venv) \u2014 PowerShell",
+      "type": "shell",
+      "windows": {
+        "command": "powershell",
+        "args": [
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}\\scripts\\setup-env.ps1"
+        ]
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup Env (.venv) \u2014 CMD",
+      "type": "shell",
+      "windows": {
+        "command": "cmd",
+        "args": [
+          "/c",
+          "${workspaceFolder}\\scripts\\setup-env.cmd"
+        ]
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build (PyInstaller) \u2014 PowerShell",
+      "type": "shell",
+      "windows": {
+        "command": "powershell",
+        "args": [
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}\\scripts\\build.ps1"
+        ]
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build (PyInstaller) \u2014 CMD",
+      "type": "shell",
+      "windows": {
+        "command": "cmd",
+        "args": [
+          "/c",
+          "${workspaceFolder}\\scripts\\build.cmd"
+        ]
+      },
+      "problemMatcher": []
+    }
+  ]
+}
