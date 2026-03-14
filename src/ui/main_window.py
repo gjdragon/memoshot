@@ -7,17 +7,17 @@ Main application window — two-panel design.
     • Header bar
     • Full-width Capture button (hotkey label updates live)
     • Last-capture status card
-    • Profile list  — shows all saved profiles as a persistent list.
+    • Profile list — saved profiles as a persistent list.
       Clicking a row loads that profile and keeps it highlighted.
-      A "+ New profile" button below creates from current settings.
+      Create profiles from the Settings panel.
     • Toolbar: Settings | Tray | Exit
 
   Settings panel  (⚙ Settings)
     Three tabs: Capture / Output / Profiles
-    • "Save as profile…" footer button visible on ALL tabs so users
-      can always snapshot their current settings without hunting.
-    • Profiles tab: create new profile (inline name field + Save button),
-      then a list to rename/delete existing ones. No QInputDialog popups.
+    Footer (always visible on all tabs):
+      • "Test capture" — runs the overlay, then returns here so
+        the user can review the result and save as a profile.
+      • "Save as profile" — name field + Save button.
     ← Back returns to Quick panel.
 """
 
@@ -390,6 +390,7 @@ class PortraitScreenshotApp(QMainWindow):
         self.hotkey_thread: Optional[HotkeyThread] = None
         self.is_exiting = False
         self._active_profile: Optional[str] = None   # tracks which profile is loaded
+        self._return_to_settings: bool = False        # True when capture was triggered from Settings
 
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -464,18 +465,7 @@ class PortraitScreenshotApp(QMainWindow):
         self._refresh_status_card()
 
         # ── Profile list ───────────────────────────────────────────────────────
-        prof_hdr = QHBoxLayout()
-        prof_hdr.addWidget(self._section_label("Profiles"))
-        prof_hdr.addStretch()
-
-        self.new_profile_btn = QPushButton("+ New profile")
-        self.new_profile_btn.setStyleSheet(STYLE_PRIMARY_SM)
-        self.new_profile_btn.setToolTip(
-            "Save current settings as a new named profile"
-        )
-        self.new_profile_btn.clicked.connect(self._new_profile_from_quick)
-        prof_hdr.addWidget(self.new_profile_btn)
-        layout.addLayout(prof_hdr)
+        layout.addWidget(self._section_label("Profiles"))
 
         self.profile_list = QListWidget()
         self.profile_list.setStyleSheet(STYLE_PROFILE_LIST)
@@ -535,22 +525,49 @@ class PortraitScreenshotApp(QMainWindow):
         self.tabs.addTab(self._build_tab_profiles(), "Profiles")
         layout.addWidget(self.tabs)
 
-        # ── "Save as profile" footer — always visible in settings ──────────────
-        # This is the key discoverability fix: users on any tab can see
-        # and use this without navigating to the Profiles tab first.
+        # ── Settings footer ────────────────────────────────────────────────────
+        # Two rows, always visible regardless of active tab:
+        #   Row 1 — Test Capture + inline last-capture status
+        #   Row 2 — Profile name field + Save button
         footer_frame = QFrame()
         footer_frame.setStyleSheet(STYLE_SAVE_FOOTER)
-        footer_layout = QHBoxLayout(footer_frame)
-        footer_layout.setContentsMargins(12, 8, 12, 8)
-        footer_layout.setSpacing(8)
+        footer_outer = QVBoxLayout(footer_frame)
+        footer_outer.setContentsMargins(12, 8, 12, 8)
+        footer_outer.setSpacing(6)
 
-        footer_lbl = QLabel("Save current settings as a profile:")
-        footer_lbl.setStyleSheet(f"color: {_SUCCESS}; font-size: 11px;")
-        footer_layout.addWidget(footer_lbl, 1)
+        # Row 1: Test Capture
+        test_row = QHBoxLayout()
+        test_row.setSpacing(8)
+
+        test_btn = QPushButton("▶  Test capture")
+        test_btn.setStyleSheet(STYLE_PRIMARY_SM)
+        test_btn.setToolTip(
+            "Run a capture with the current settings — the window re-opens "
+            "here so you can review and save as a profile"
+        )
+        test_btn.clicked.connect(self._test_capture_from_settings)
+        test_row.addWidget(test_btn)
+
+        self.settings_status_lbl = QLabel()
+        self.settings_status_lbl.setStyleSheet(
+            f"color: {_TEXT_MUTED}; font-size: 11px;"
+        )
+        self.settings_status_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._refresh_settings_status_lbl()
+        test_row.addWidget(self.settings_status_lbl, 1)
+
+        footer_outer.addLayout(test_row)
+
+        # Row 2: Save as profile
+        save_row = QHBoxLayout()
+        save_row.setSpacing(8)
+
+        save_lbl = QLabel("Save as profile:")
+        save_lbl.setStyleSheet(f"color: {_SUCCESS}; font-size: 11px;")
+        save_row.addWidget(save_lbl)
 
         self.footer_profile_name = QLineEdit()
         self.footer_profile_name.setPlaceholderText("Profile name…")
-        self.footer_profile_name.setFixedWidth(120)
         self.footer_profile_name.setStyleSheet(f"""
             QLineEdit {{
                 background: {_SURFACE};
@@ -562,15 +579,15 @@ class PortraitScreenshotApp(QMainWindow):
             }}
             QLineEdit:focus {{ border-color: {_SUCCESS}; }}
         """)
-        # Enter key in name field also saves
         self.footer_profile_name.returnPressed.connect(self._save_profile_from_footer)
-        footer_layout.addWidget(self.footer_profile_name)
+        save_row.addWidget(self.footer_profile_name, 1)
 
         footer_save_btn = QPushButton("Save")
         footer_save_btn.setStyleSheet(STYLE_PRIMARY_SM)
         footer_save_btn.clicked.connect(self._save_profile_from_footer)
-        footer_layout.addWidget(footer_save_btn)
+        save_row.addWidget(footer_save_btn)
 
+        footer_outer.addLayout(save_row)
         layout.addWidget(footer_frame)
 
         # Auto-save indicator
@@ -773,8 +790,8 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addWidget(self._section_label("Your profiles"))
 
         hint = QLabel(
-            "Use the Save footer below to create a profile from your current settings. "
-            "Select a profile here to load or delete it."
+            "Use 'Test capture' in the footer to try your settings, "
+            "then type a name and Save to create a profile."
         )
         hint.setStyleSheet(STYLE_LABEL_MUTED)
         hint.setWordWrap(True)
@@ -861,7 +878,7 @@ class PortraitScreenshotApp(QMainWindow):
                     item.setSelected(True)
                     self.profile_list.setCurrentItem(item)
         else:
-            placeholder = QListWidgetItem("No profiles yet — use '+ New profile' to create one")
+            placeholder = QListWidgetItem("No profiles yet — go to Settings to create one")
             placeholder.setFlags(Qt.NoItemFlags)
             placeholder.setForeground(QColor(_TEXT_HINT))
             self.profile_list.addItem(placeholder)
@@ -915,24 +932,6 @@ class PortraitScreenshotApp(QMainWindow):
         name = item.text()
         self._load_profile_by_name(name)
 
-    def _new_profile_from_quick(self) -> None:
-        """
-        '+ New profile' on Quick panel.
-        Ask for a name (via a small inline input dialog) and save current settings.
-        """
-        # Use a simple input dialog — keeping Quick panel uncluttered
-        from PyQt5.QtWidgets import QInputDialog
-        name, ok = QInputDialog.getText(
-            self, "New profile", "Profile name:"
-        )
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-        self._snapshot_ui_to_settings()
-        cfg.save_profile(self.settings, name)
-        self._active_profile = name
-        self._rebuild_all_profile_lists()
-
     # ══════════════════════════════════════════════════════════════════════════
     # Profile actions — Settings panel list
     # ══════════════════════════════════════════════════════════════════════════
@@ -983,13 +982,7 @@ class PortraitScreenshotApp(QMainWindow):
         # Brief visual confirmation in the autosave label
         self.autosave_label.setText(f'✔  Profile "{name}" saved')
         self.autosave_label.setVisible(True)
-        QTimer.singleShot(
-            3000,
-            lambda: (
-                self.autosave_label.setText("✔  Settings saved"),
-                self.autosave_label.setVisible(False),
-            ),
-        )
+        QTimer.singleShot(3000, self._reset_autosave_label)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Core profile load — used by both lists
@@ -1140,6 +1133,38 @@ class PortraitScreenshotApp(QMainWindow):
     def _on_capture_complete(self, rect) -> None:
         self._refresh_status_card()
         cfg.save(self.settings)
+        if self._return_to_settings:
+            self._return_to_settings = False
+            # Come back to the settings panel so the user can review and save
+            self._refresh_settings_status_lbl()
+            self.stack.setCurrentIndex(1)
+            self.show()
+            self.activateWindow()
+
+    def _test_capture_from_settings(self) -> None:
+        """
+        Trigger a capture from the Settings panel.
+        Sets a flag so _on_capture_complete brings the user back to
+        Settings (not Quick Capture) after the overlay closes.
+        """
+        self._snapshot_ui_to_settings()   # make sure latest spin/field values are live
+        self._return_to_settings = True
+        self.hide()                        # hide the window so the overlay is unobstructed
+        # Small delay so the window is fully hidden before the overlay appears
+        QTimer.singleShot(120, self.start_capture)
+
+    def _refresh_settings_status_lbl(self) -> None:
+        """Update the inline status line in the settings footer."""
+        if not hasattr(self, "settings_status_lbl"):
+            return
+        mode = self.settings.get("ratio_mode", "9:16")
+        rect = self.settings.get(f"last_capture_rect_{mode}")
+        if rect:
+            self.settings_status_lbl.setText(
+                f"Last: {rect['width']}×{rect['height']} at ({rect['x']}, {rect['y']})"
+            )
+        else:
+            self.settings_status_lbl.setText("No capture yet")
 
     def _on_overlay_dimensions_changed(self, width: int, height: int) -> None:
         self.width_spin.blockSignals(True)
@@ -1154,6 +1179,11 @@ class PortraitScreenshotApp(QMainWindow):
     # ══════════════════════════════════════════════════════════════════════════
     # Auto-save
     # ══════════════════════════════════════════════════════════════════════════
+
+    def _reset_autosave_label(self) -> None:
+        """Restore the autosave label to its default text and hide it."""
+        self.autosave_label.setText("✔  Settings saved")
+        self.autosave_label.setVisible(False)
 
     def _schedule_auto_save(self, *_args) -> None:
         self._save_timer.start()
