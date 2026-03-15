@@ -61,10 +61,17 @@ class CaptureOverlay(QWidget):
             self.capture_rect = last_rect
             logger.debug(f"Restored last region: {last_rect}")
         else:
-            x = max(sg.left(), min(sg.left() + (sg.width() - width) // 2, sg.left() + sg.width() - width))
-            y = max(sg.top(), min(sg.top() + (sg.height() - height) // 2, sg.top() + sg.height() - height))
+            # Convert screen geometry to local overlay coordinates
+            ox = self.full_desktop_offset.x()
+            oy = self.full_desktop_offset.y()
+            local_left = sg.left() - ox
+            local_top  = sg.top()  - oy
+            x = max(local_left, min(local_left + (sg.width()  - width)  // 2,
+                                    local_left + sg.width()  - width))
+            y = max(local_top,  min(local_top  + (sg.height() - height) // 2,
+                                    local_top  + sg.height() - height))
             self.capture_rect = QRect(int(x), int(y), int(width), int(height))
-            logger.debug(f"Initial capture rect (centred): {self.capture_rect}")
+            logger.debug(f"Initial capture rect (centred, local): {self.capture_rect}")
 
         self.dragging = False
         self.drag_offset = QPoint()
@@ -110,18 +117,45 @@ class CaptureOverlay(QWidget):
             if data.get("width") != width or data.get("height") != height:
                 return None
             rect = QRect(data["x"], data["y"], data["width"], data["height"])
+            # rect is in local overlay coords; convert to global to check
+            # which screen it sits on, then clamp back to local coords.
+            ox = self.full_desktop_offset.x()
+            oy = self.full_desktop_offset.y()
+            global_rect = rect.translated(ox, oy)
             for screen in self.screens:
-                if rect.intersects(screen.geometry()):
+                if global_rect.intersects(screen.geometry()):
                     return self._clamp_rect_to_desktop(rect)
         except Exception as exc:
             logger.warning(f"Error validating last region: {exc}")
         return None
 
     def _clamp_rect_to_desktop(self, rect: QRect) -> QRect:
-        ox, oy = self.full_desktop_offset.x(), self.full_desktop_offset.y()
-        x = max(ox, min(rect.x(), ox + self.width() - rect.width()))
-        y = max(oy, min(rect.y(), oy + self.height() - rect.height()))
-        return QRect(int(x), int(y), rect.width(), rect.height())
+        """
+        Clamp *rect* (in local overlay coordinates) so it sits fully within
+        the union of all screen geometries converted to local coords.
+        This prevents the selection from drifting into the black letterbox
+        areas above/below screens that don't share the same y-origin.
+        """
+        ox = self.full_desktop_offset.x()
+        oy = self.full_desktop_offset.y()
+
+        # Build the bounding box of all screens in local coords
+        local_min_x = float("inf")
+        local_min_y = float("inf")
+        local_max_x = float("-inf")
+        local_max_y = float("-inf")
+        for screen in self.screens:
+            g = screen.geometry()
+            lx = g.x() - ox
+            ly = g.y() - oy
+            local_min_x = min(local_min_x, lx)
+            local_min_y = min(local_min_y, ly)
+            local_max_x = max(local_max_x, lx + g.width())
+            local_max_y = max(local_max_y, ly + g.height())
+
+        x = max(int(local_min_x), min(rect.x(), int(local_max_x) - rect.width()))
+        y = max(int(local_min_y), min(rect.y(), int(local_max_y) - rect.height()))
+        return QRect(x, y, rect.width(), rect.height())
 
     # ── Paint ──────────────────────────────────────────────────────────────────
 
