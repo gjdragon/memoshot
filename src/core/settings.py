@@ -7,6 +7,7 @@ No PyQt5 dependency – pure Python / JSON.
 
 import json
 import os
+from typing import List
 
 from utils.logger import get_logger
 
@@ -25,6 +26,10 @@ DEFAULT_SETTINGS: dict = {
     "copy_to_clipboard": True,
     "file_prefix": "",
     "profiles": {},
+    # ── Logging ────────────────────────────────────────────────────────────────
+    "logging_enabled": True,
+    "log_folder": "",            # empty → use default (src/Logs/)
+    "log_level": "INFO",         # "INFO" or "DEBUG"
 }
 
 # Keys that are stored inside a profile snapshot
@@ -104,6 +109,6 @@ def delete_profile(settings: dict, name: str) -> bool:
     return True
 
 
-def list_profiles(settings: dict) -> list[str]:
+def list_profiles(settings: dict) -> List[str]:
     """Return sorted list of profile names."""
     return sorted(settings.get("profiles", {}).keys())

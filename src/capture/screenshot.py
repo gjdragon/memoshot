@@ -29,6 +29,7 @@ def get_next_sequence_number(save_dir: str, prefix: str) -> int:
     the next integer in the sequence.
     """
     if not os.path.exists(save_dir):
+        logger.debug(f"Save dir does not exist yet, starting sequence at 1: {save_dir}")
         return 1
 
     pattern = re.compile(rf"^{re.escape(prefix)}(\d+)\.png$", re.IGNORECASE)
@@ -41,7 +42,9 @@ def get_next_sequence_number(save_dir: str, prefix: str) -> int:
     except Exception as exc:
         logger.warning(f"Error scanning directory for sequence numbers: {exc}")
 
-    return max_number + 1
+    next_seq = max_number + 1
+    logger.debug(f"Next sequence number for prefix '{prefix}': {next_seq}")
+    return next_seq
 
 
 def build_filename(save_dir: str, prefix: str) -> str:
@@ -55,9 +58,11 @@ def build_filename(save_dir: str, prefix: str) -> str:
     if not prefix:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"Portrait_{timestamp}.png"
+        logger.debug(f"Filename (timestamp mode): {filename}")
     else:
         seq = get_next_sequence_number(save_dir, prefix)
         filename = f"{prefix}{seq}.png"
+        logger.debug(f"Filename (sequence mode): {filename}")
     return os.path.join(save_dir, filename)
 
 
@@ -73,12 +78,17 @@ def save_screenshot(pixmap: QPixmap, rect: QRect, settings: dict) -> str:
     save_dir = settings.get(
         "save_location", os.path.join(os.path.expanduser("~"), "Screenshots")
     )
+    logger.debug(
+        f"save_screenshot called — rect=({rect.x()},{rect.y()},{rect.width()}×{rect.height()})"
+        f"  save_dir={save_dir}"
+    )
     os.makedirs(save_dir, exist_ok=True)
 
     prefix = settings.get("file_prefix", "")
     filepath = build_filename(save_dir, prefix)
 
     cropped: QPixmap = pixmap.copy(rect)
+    logger.debug(f"Cropped pixmap size: {cropped.width()}×{cropped.height()}")
 
     if not cropped.save(filepath, "PNG"):
         raise IOError(f"QPixmap.save() returned False for path: {filepath}")
@@ -87,6 +97,8 @@ def save_screenshot(pixmap: QPixmap, rect: QRect, settings: dict) -> str:
 
     if settings.get("copy_to_clipboard", True):
         copy_to_clipboard(cropped)
+    else:
+        logger.debug("Clipboard copy skipped (disabled in settings)")
 
     return filepath
 

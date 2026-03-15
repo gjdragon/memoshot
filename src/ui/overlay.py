@@ -46,6 +46,7 @@ class CaptureOverlay(QWidget):
 
         self.screens = QApplication.screens()
         self._setup_full_desktop_geometry()
+        logger.debug(f"Overlay geometry: {self.geometry()}, screens: {len(self.screens)}")
 
         width = settings.get("portrait_width", 1080)
         height = settings.get("portrait_height", 1920)
@@ -53,14 +54,17 @@ class CaptureOverlay(QWidget):
         mouse_pos = QCursor.pos()
         screen = QApplication.screenAt(mouse_pos) or QApplication.primaryScreen()
         sg = screen.geometry()
+        logger.debug(f"Active screen: {sg}, requested size: {width}×{height}")
 
         last_rect = self._get_valid_last_region(width, height)
         if last_rect is not None:
             self.capture_rect = last_rect
+            logger.debug(f"Restored last region: {last_rect}")
         else:
             x = max(sg.left(), min(sg.left() + (sg.width() - width) // 2, sg.left() + sg.width() - width))
             y = max(sg.top(), min(sg.top() + (sg.height() - height) // 2, sg.top() + sg.height() - height))
             self.capture_rect = QRect(int(x), int(y), int(width), int(height))
+            logger.debug(f"Initial capture rect (centred): {self.capture_rect}")
 
         self.dragging = False
         self.drag_offset = QPoint()
@@ -304,10 +308,12 @@ class CaptureOverlay(QWidget):
             self.resize_start_pos = event.pos()
             self.resize_start_rect = QRect(self.capture_rect)
             self.setCursor(self._resize_cursor(edge))
+            logger.debug(f"Resize started — edge={edge}")
         elif self.capture_rect.contains(event.pos()):
             self.dragging = True
             self.drag_offset = event.pos() - self.capture_rect.topLeft()
             self.setCursor(Qt.ClosedHandCursor)
+            logger.debug("Drag started")
 
     def mouseMoveEvent(self, event) -> None:
         if self.resizing:
@@ -345,9 +351,13 @@ class CaptureOverlay(QWidget):
         if self.resizing:
             self.resizing = False
             self.resize_edge = None
-            self.update_ui_dimensions.emit(self.capture_rect.width(), self.capture_rect.height())
+            cr = self.capture_rect
+            logger.debug(f"Resize ended — final rect: {cr.x()},{cr.y()} {cr.width()}×{cr.height()}")
+            self.update_ui_dimensions.emit(cr.width(), cr.height())
         elif self.dragging:
             self.dragging = False
+            cr = self.capture_rect
+            logger.debug(f"Drag ended — position: {cr.x()},{cr.y()}")
         edge = self._get_resize_edge(event.pos())
         if edge:
             self.setCursor(self._resize_cursor(edge))
@@ -363,19 +373,22 @@ class CaptureOverlay(QWidget):
             return
         key = event.key()
         if key in (Qt.Key_Return, Qt.Key_Enter):
+            logger.debug("Enter key — triggering capture")
             self._capture_and_save()
         elif key == Qt.Key_Escape:
-            # First press closes the shortcut panel; second press exits the overlay
             if self._show_shortcuts:
+                logger.debug("Esc — closing shortcut panel")
                 self._show_shortcuts = False
                 self.update()
             else:
+                logger.debug("Esc — cancelling overlay")
                 self.close()
         elif key == Qt.Key_S:
+            logger.debug("S key — snap to screen")
             self._snap_to_screen()
         elif key in (Qt.Key_Question, Qt.Key_Slash):
-            # '?' toggles the shortcut cheat-sheet panel
             self._show_shortcuts = not self._show_shortcuts
+            logger.debug(f"Shortcut panel toggled: {self._show_shortcuts}")
             self.update()
 
     # ── Snap to screen ─────────────────────────────────────────────────────────
@@ -397,11 +410,13 @@ class CaptureOverlay(QWidget):
                     best = area
                     target = screen
         if target is None:
+            logger.warning("Snap to screen: no target screen found")
             return
         g = target.geometry()
         lx = g.x() - self.full_desktop_offset.x()
         ly = g.y() - self.full_desktop_offset.y()
         self.capture_rect = QRect(lx, ly, g.width(), g.height())
+        logger.debug(f"Snapped to screen: {g.width()}×{g.height()} at ({lx},{ly})")
         self.update()
         self.update_ui_dimensions.emit(g.width(), g.height())
 
@@ -415,10 +430,18 @@ class CaptureOverlay(QWidget):
                 "x": cr.x(), "y": cr.y(),
                 "width": cr.width(), "height": cr.height(),
             }
+            logger.debug(
+                f"Saved capture region ({ratio_mode}): "
+                f"{cr.width()}×{cr.height()} at ({cr.x()},{cr.y()})"
+            )
         except Exception as exc:
             logger.error(f"Error saving capture region: {exc}")
 
     def _capture_and_save(self) -> None:
+        cr = self.capture_rect
+        logger.info(
+            f"Capture confirmed — rect: {cr.width()}×{cr.height()} at ({cr.x()},{cr.y()})"
+        )
         try:
             self.releaseMouse()
             self.releaseKeyboard()

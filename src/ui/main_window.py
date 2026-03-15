@@ -21,10 +21,14 @@ Main application window — two-panel design.
     ← Back returns to Quick panel.
 """
 
+import os
+import subprocess
+import sys
+
 import core.settings as cfg
 from core.hotkey import HotkeyThread
 from ui.overlay import CaptureOverlay
-from utils.logger import get_logger
+from utils.logger import get_logger, apply_log_settings, current_log_path
 from version import __version__
 from typing import Optional
 
@@ -193,37 +197,38 @@ QListWidget::item:selected {{
 """
 
 STYLE_TAB = f"""
-QTabWidget::pane {{
-    border: 1px solid {_BORDER};
-    border-top: none;
-    background: {_SURFACE};
-    border-radius: 0px 0px 6px 6px;
-}}
-QTabBar {{
+QTabWidget {{
     background: transparent;
+}}
+QTabWidget::pane {{
+    background: {_SURFACE};
+    border: 1px solid {_BORDER};
+    border-radius: 0px 0px 6px 6px;
+    top: -1px;
 }}
 QTabBar::tab {{
     background: {_WIN_BG};
     color: {_TEXT_MUTED};
     border: 1px solid {_BORDER};
-    border-bottom: none;
+    border-bottom: 1px solid {_BORDER};
     border-radius: 5px 5px 0 0;
-    padding: 7px 0px;
-    min-width: 90px;
-    margin-right: 3px;
+    padding: 6px 0px;
+    min-width: 76px;
+    margin-right: 1px;
     font-size: 12px;
-    qproperty-alignment: AlignCenter;
 }}
 QTabBar::tab:selected {{
     background: {_SURFACE};
     color: {_BLUE};
     font-weight: bold;
-    border-color: {_BORDER};
-    border-bottom-color: {_SURFACE};
+    border-bottom: 1px solid {_SURFACE};
+}}
+QTabBar::tab:!selected {{
+    margin-top: 2px;
 }}
 QTabBar::tab:hover:!selected {{
     color: {_TEXT_PRIMARY};
-    background: {_WIN_BG};
+    background: #f1f5f9;
 }}
 """
 
@@ -397,7 +402,7 @@ class PortraitScreenshotApp(QMainWindow):
         self._save_timer.setInterval(600)
         self._save_timer.timeout.connect(self._flush_auto_save)
 
-        self.setWindowTitle(f"MemoShot v{APP_VERSION}")
+        self.setWindowTitle("MemoShot")
         self.setFixedWidth(400)
         self.setStyleSheet(STYLE_WINDOW)
 
@@ -465,14 +470,12 @@ class PortraitScreenshotApp(QMainWindow):
         self._refresh_status_card()
 
         # ── Profile list ───────────────────────────────────────────────────────
-        layout.addWidget(self._section_label("Profiles"))
-
         self.profile_list = QListWidget()
         self.profile_list.setStyleSheet(STYLE_PROFILE_LIST)
-        self.profile_list.setMaximumHeight(110)
+        self.profile_list.setMinimumHeight(80)
         self.profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.profile_list.itemClicked.connect(self._on_profile_list_clicked)
-        layout.addWidget(self.profile_list)
+        layout.addWidget(self.profile_list, 1)   # stretch=1 fills remaining space
         self._rebuild_profile_list()
 
         # Toolbar
@@ -483,6 +486,12 @@ class PortraitScreenshotApp(QMainWindow):
         settings_btn.setStyleSheet(STYLE_ICON_BTN)
         settings_btn.clicked.connect(lambda: self.stack.setCurrentIndex(1))
         toolbar.addWidget(settings_btn)
+
+        folder_btn = QPushButton("📂  Open folder")
+        folder_btn.setStyleSheet(STYLE_ICON_BTN)
+        folder_btn.setToolTip("Open the screenshots save folder")
+        folder_btn.clicked.connect(self._open_save_folder)
+        toolbar.addWidget(folder_btn)
 
         toolbar.addStretch()
 
@@ -518,11 +527,11 @@ class PortraitScreenshotApp(QMainWindow):
         layout.setSpacing(8)
 
         self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True)
         self.tabs.setStyleSheet(STYLE_TAB)
         self.tabs.addTab(self._build_tab_capture(),  "Capture")
         self.tabs.addTab(self._build_tab_output(),   "Output")
         self.tabs.addTab(self._build_tab_profiles(), "Profiles")
+        self.tabs.addTab(self._build_tab_logging(),  "Logging")
         layout.addWidget(self.tabs)
 
         # ── Settings footer ────────────────────────────────────────────────────
@@ -837,7 +846,102 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addStretch()
         return tab
 
-    # ── Shared helper widgets ─────────────────────────────────────────────────
+    # ── Tab: Logging ──────────────────────────────────────────────────────────
+
+    def _build_tab_logging(self) -> QWidget:
+        tab = QWidget()
+        tab.setStyleSheet(f"background: {_SURFACE};")
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Enable / disable logging
+        layout.addWidget(self._section_label("Logging"))
+        self.logging_enabled_checkbox = QCheckBox("Enable logging to file")
+        self.logging_enabled_checkbox.setChecked(
+            self.settings.get("logging_enabled", True)
+        )
+        self.logging_enabled_checkbox.stateChanged.connect(self._on_logging_setting_changed)
+        layout.addWidget(self.logging_enabled_checkbox)
+
+        layout.addWidget(self._divider())
+
+        # Log level
+        layout.addWidget(self._section_label("Log level"))
+        level_row = QHBoxLayout()
+        self.log_level_combo = QComboBox()
+        self.log_level_combo.addItems(["INFO", "DEBUG"])
+        saved_level = self.settings.get("log_level", "INFO").upper()
+        self.log_level_combo.setCurrentText(
+            saved_level if saved_level in ("INFO", "DEBUG") else "INFO"
+        )
+        self.log_level_combo.setFixedWidth(100)
+        self.log_level_combo.currentTextChanged.connect(self._on_logging_setting_changed)
+        level_row.addWidget(self.log_level_combo)
+        level_row.addWidget(
+            self._inline_hint("INFO = key events only   ·   DEBUG = every interaction")
+        )
+        level_row.addStretch()
+        layout.addLayout(level_row)
+
+        layout.addWidget(self._divider())
+
+        # Log folder
+        layout.addWidget(self._section_label("Log folder"))
+        log_folder_row = QHBoxLayout()
+        default_folder = self._default_log_folder_display()
+        self.log_folder_input = QLineEdit(
+            self.settings.get("log_folder", "") or default_folder
+        )
+        self.log_folder_input.editingFinished.connect(self._on_logging_setting_changed)
+        log_browse_btn = QPushButton("Browse…")
+        log_browse_btn.setStyleSheet(STYLE_ICON_BTN)
+        log_browse_btn.setFixedWidth(72)
+        log_browse_btn.clicked.connect(self._browse_log_folder)
+        log_folder_row.addWidget(self.log_folder_input, 1)
+        log_folder_row.addWidget(log_browse_btn)
+        layout.addLayout(log_folder_row)
+
+        hint = QLabel(
+            "Log files are named log_memoshot_YYYYMMDD_HHMMSS.txt\n"
+            "Max 1 MB per file · 5 rotating backups kept automatically"
+        )
+        hint.setStyleSheet(STYLE_LABEL_MUTED)
+        layout.addWidget(hint)
+
+        layout.addWidget(self._divider())
+
+        # Current log file + open folder button
+        layout.addWidget(self._section_label("Current session"))
+        self.current_log_lbl = QLabel()
+        self.current_log_lbl.setStyleSheet(STYLE_LABEL_MUTED)
+        self.current_log_lbl.setWordWrap(True)
+        self._refresh_current_log_label()
+        layout.addWidget(self.current_log_lbl)
+
+        open_log_btn = QPushButton("📂  Open log folder")
+        open_log_btn.setStyleSheet(STYLE_ICON_BTN)
+        open_log_btn.clicked.connect(self._open_log_folder)
+        layout.addWidget(open_log_btn)
+
+        layout.addStretch()
+        return tab
+
+    @staticmethod
+    def _inline_hint(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color: {_TEXT_HINT}; font-size: 11px;")
+        return lbl
+
+    @staticmethod
+    def _default_log_folder_display() -> str:
+        """Return the human-readable default log folder path."""
+        try:
+            base = os.path.dirname(os.path.abspath(__file__))
+            src_dir = os.path.dirname(base)
+            return os.path.join(src_dir, "Logs")
+        except Exception:
+            return os.path.join(os.path.expanduser("~"), ".memoshot", "Logs")
 
     @staticmethod
     def _section_label(text: str) -> QLabel:
@@ -846,12 +950,11 @@ class PortraitScreenshotApp(QMainWindow):
         return lbl
 
     @staticmethod
-    def _divider() -> QFrame:
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet(
-            f"color: {_BORDER}; background: {_BORDER}; max-height: 1px;"
-        )
+    def _divider() -> QWidget:
+        """A reliable 1 px horizontal rule that renders consistently on Windows."""
+        line = QWidget()
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background-color: {_BORDER};")
         return line
 
     def eventFilter(self, obj, event) -> bool:
@@ -1208,6 +1311,74 @@ class PortraitScreenshotApp(QMainWindow):
     # ══════════════════════════════════════════════════════════════════════════
     # Settings helpers
     # ══════════════════════════════════════════════════════════════════════════
+
+    def _open_save_folder(self) -> None:
+        """Open the configured save folder in the system file manager."""
+        folder = self.settings.get(
+            "save_location", os.path.join(os.path.expanduser("~"), "Screenshots")
+        )
+        os.makedirs(folder, exist_ok=True)
+        try:
+            if sys.platform == "win32":
+                os.startfile(folder)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+        except Exception as exc:
+            logger.warning(f"Could not open folder: {exc}")
+            QMessageBox.warning(self, "Cannot open folder",
+                                f"Could not open:\n{folder}\n\n{exc}")
+
+    def _open_log_folder(self) -> None:
+        """Open the log folder in the system file manager."""
+        folder = self.settings.get("log_folder", "") or self._default_log_folder_display()
+        os.makedirs(folder, exist_ok=True)
+        try:
+            if sys.platform == "win32":
+                os.startfile(folder)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+        except Exception as exc:
+            logger.warning(f"Could not open log folder: {exc}")
+            QMessageBox.warning(self, "Cannot open folder",
+                                f"Could not open:\n{folder}\n\n{exc}")
+
+    def _browse_log_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Select Log Folder")
+        if folder:
+            self.log_folder_input.setText(folder)
+            self._on_logging_setting_changed()
+
+    def _on_logging_setting_changed(self, *_args) -> None:
+        """Persist logging settings and immediately reconfigure the logger."""
+        self.settings["logging_enabled"] = self.logging_enabled_checkbox.isChecked()
+        self.settings["log_level"]       = self.log_level_combo.currentText()
+        raw_folder = self.log_folder_input.text().strip()
+        # Store empty string if user typed the default path (keeps settings clean)
+        self.settings["log_folder"] = (
+            "" if raw_folder == self._default_log_folder_display() else raw_folder
+        )
+        cfg.save(self.settings)
+        apply_log_settings(self.settings)
+        self._refresh_current_log_label()
+        logger.info(
+            f"Logging settings updated — "
+            f"enabled={self.settings['logging_enabled']}  "
+            f"level={self.settings['log_level']}"
+        )
+
+    def _refresh_current_log_label(self) -> None:
+        """Update the 'current session' label in the Logging tab."""
+        if not hasattr(self, "current_log_lbl"):
+            return
+        path = current_log_path()
+        if path:
+            self.current_log_lbl.setText(f"Active log file:\n{path}")
+        else:
+            self.current_log_lbl.setText("Logging is disabled — no file is being written.")
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Save Location")

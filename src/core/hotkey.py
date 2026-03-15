@@ -32,6 +32,7 @@ class HotkeyThread(QThread):
             self.is_running = True
             logger.info(f"Hotkey thread started for: {self.hotkey}")
             keyboard.add_hotkey(self.hotkey, self._on_hotkey)
+            logger.debug(f"keyboard.add_hotkey registered: {self.hotkey}")
             while self.is_running:
                 time.sleep(0.1)
         except Exception as exc:
@@ -40,13 +41,16 @@ class HotkeyThread(QThread):
             logger.info("Hotkey thread ended")
 
     def _on_hotkey(self) -> None:
+        logger.debug(f"Hotkey triggered: {self.hotkey}")
         self.hotkey_triggered.emit()
 
     def stop(self) -> None:
         """Gracefully stop the thread and unhook all keyboard hooks."""
+        logger.debug("HotkeyThread.stop() called")
         self.is_running = False
         try:
             keyboard.unhook_all()
+            logger.debug("keyboard.unhook_all() completed")
         except Exception as exc:
             logger.error(f"Error stopping hotkey thread: {exc}")
         self.wait()
