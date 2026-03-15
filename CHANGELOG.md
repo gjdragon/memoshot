@@ -6,6 +6,8 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.6.3] — UI polish
+
 ## [1.6.2] — Multi-monitor coordinate fix, logging tab, UI polish
 
 ### Fixed

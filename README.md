@@ -2,6 +2,16 @@
 
 A lightweight, always-available screenshot tool for content creators. MemoShot lives in the system tray, responds to a global hotkey, and saves properly sized captures for TikTok, YouTube Shorts, Instagram, LinkedIn, and any other platform — without interrupting your workflow.
 
+## Screenshots
+
+<div style="display: flex; gap: 10px;">
+  <img src="res/screenshot.png" width="180"/>
+  <img src="res/screenshot1.png" width="180"/>
+  <img src="res/screenshot2.png" width="180"/>
+  <img src="res/screenshot3.png" width="180"/>
+  <img src="res/screenshot4.png" width="180"/>
+</div>
+
 ---
 
 ## Features

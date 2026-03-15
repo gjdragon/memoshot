@@ -223,7 +223,8 @@ QTabBar::tab:selected {{
     background: {_SURFACE};
     color: {_BLUE};
     font-weight: bold;
-    border-bottom: 1px solid {_SURFACE};
+    border-color: {_BORDER};
+    border-bottom: 2px solid {_BLUE};
 }}
 QTabBar::tab:!selected {{
     margin-top: 2px;
@@ -234,19 +235,20 @@ QTabBar::tab:hover:!selected {{
 }}
 """
 
-# "Save as profile" footer banner in Settings panel
+STYLE_SECTION_HDR = (
+    f"color: {_TEXT_PRIMARY}; font-size: 10px; font-weight: bold; "
+    f"letter-spacing: 1px;"
+)
+
+# Settings panel footer — neutral surface, thin top border as separator
 STYLE_SAVE_FOOTER = f"""
 QFrame {{
-    background-color: {_SUCCESS_BG};
-    border: 1px solid {_SUCCESS_BDR};
-    border-radius: 6px;
+    background-color: {_WIN_BG};
+    border: none;
+    border-top: 1px solid {_BORDER};
+    border-radius: 0px;
 }}
 """
-
-STYLE_SECTION_HDR = (
-    f"color: {_TEXT_MUTED}; font-size: 10px; font-weight: bold; "
-    f"letter-spacing: 0.8px;"
-)
 STYLE_LABEL_MUTED = f"color: {_TEXT_HINT}; font-size: 11px;"
 STYLE_LABEL_HINT  = f"color: {_SUCCESS}; font-size: 11px;"
 STYLE_AUTOSAVE    = f"color: {_SUCCESS}; font-size: 10px; font-style: italic;"
@@ -444,7 +446,7 @@ class PortraitScreenshotApp(QMainWindow):
         body = QWidget()
         layout = QVBoxLayout(body)
         layout.setContentsMargins(20, 16, 20, 14)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
 
         # Capture button
         hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
@@ -454,15 +456,21 @@ class PortraitScreenshotApp(QMainWindow):
         self.capture_btn.clicked.connect(self.start_capture)
         layout.addWidget(self.capture_btn)
 
-        # Status card
+        # Status card — subtle tinted background, no heavy border
         status_frame = QFrame()
-        status_frame.setStyleSheet(STYLE_STATUS_CARD)
+        status_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {_WIN_BG};
+                border: 1px solid {_BORDER};
+                border-radius: 6px;
+            }}
+        """)
         sf = QVBoxLayout(status_frame)
         sf.setContentsMargins(12, 8, 12, 8)
         sf.setSpacing(2)
         self.status_label = QLabel()
         self.status_label.setStyleSheet(
-            f"color: {_TEXT_PRIMARY}; font-size: 12px; font-weight: bold;"
+            f"color: {_TEXT_PRIMARY}; font-size: 12px; font-weight: 600;"
         )
         self.status_sub = QLabel()
         self.status_sub.setStyleSheet(STYLE_LABEL_MUTED)
@@ -472,12 +480,18 @@ class PortraitScreenshotApp(QMainWindow):
         self._refresh_status_card()
 
         # ── Profile list ───────────────────────────────────────────────────────
+        prof_hdr = QLabel("PROFILES")
+        prof_hdr.setStyleSheet(
+            f"color: {_TEXT_HINT}; font-size: 10px; font-weight: bold; "
+            f"letter-spacing: 1px;"
+        )
+        layout.addWidget(prof_hdr)
+
         self.profile_list = QListWidget()
         self.profile_list.setStyleSheet(STYLE_PROFILE_LIST)
-        self.profile_list.setMinimumHeight(80)
         self.profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.profile_list.itemClicked.connect(self._on_profile_list_clicked)
-        layout.addWidget(self.profile_list, 1)   # stretch=1 fills remaining space
+        layout.addWidget(self.profile_list, 1)   # stretch fills all remaining space
         self._rebuild_profile_list()
 
         # Toolbar — 4 equal-width buttons filling the full row
@@ -525,16 +539,13 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addWidget(self.tabs)
 
         # ── Settings footer ────────────────────────────────────────────────────
-        # Two rows, always visible regardless of active tab:
-        #   Row 1 — Test Capture + inline last-capture status
-        #   Row 2 — Profile name field + Save button
         footer_frame = QFrame()
         footer_frame.setStyleSheet(STYLE_SAVE_FOOTER)
         footer_outer = QVBoxLayout(footer_frame)
-        footer_outer.setContentsMargins(12, 8, 12, 8)
-        footer_outer.setSpacing(6)
+        footer_outer.setContentsMargins(12, 10, 12, 10)
+        footer_outer.setSpacing(8)
 
-        # Row 1: Test Capture
+        # Row 1: Test Capture + inline last-capture status
         test_row = QHBoxLayout()
         test_row.setSpacing(8)
 
@@ -557,12 +568,19 @@ class PortraitScreenshotApp(QMainWindow):
 
         footer_outer.addLayout(test_row)
 
-        # Row 2: Save as profile
+        # Thin rule between the two rows
+        div = QWidget()
+        div.setFixedHeight(1)
+        div.setStyleSheet(f"background: {_BORDER};")
+        footer_outer.addWidget(div)
+
+        # Row 2: Save as profile — muted label + input + Save button
         save_row = QHBoxLayout()
-        save_row.setSpacing(8)
+        save_row.setSpacing(6)
 
         save_lbl = QLabel("Save as profile:")
-        save_lbl.setStyleSheet(f"color: {_SUCCESS}; font-size: 11px;")
+        save_lbl.setStyleSheet(f"color: {_TEXT_MUTED}; font-size: 11px;")
+        save_lbl.setFixedWidth(90)
         save_row.addWidget(save_lbl)
 
         self.footer_profile_name = QLineEdit()
@@ -570,13 +588,13 @@ class PortraitScreenshotApp(QMainWindow):
         self.footer_profile_name.setStyleSheet(f"""
             QLineEdit {{
                 background: {_SURFACE};
-                border: 1px solid {_SUCCESS_BDR};
+                border: 1px solid {_BORDER};
                 border-radius: 4px;
                 padding: 4px 8px;
                 font-size: 12px;
                 color: {_TEXT_PRIMARY};
             }}
-            QLineEdit:focus {{ border-color: {_SUCCESS}; }}
+            QLineEdit:focus {{ border-color: {_BLUE}; }}
         """)
         self.footer_profile_name.returnPressed.connect(self._save_profile_from_footer)
         save_row.addWidget(self.footer_profile_name, 1)
@@ -905,7 +923,9 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addWidget(self._section_label("Current session"))
         self.current_log_lbl = QLabel()
         self.current_log_lbl.setStyleSheet(STYLE_LABEL_MUTED)
-        self.current_log_lbl.setWordWrap(True)
+        self.current_log_lbl.setWordWrap(False)
+        self.current_log_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.current_log_lbl.setToolTip("")   # tooltip set in _refresh_current_log_label
         self._refresh_current_log_label()
         layout.addWidget(self.current_log_lbl)
 
@@ -1366,9 +1386,12 @@ class PortraitScreenshotApp(QMainWindow):
             return
         path = current_log_path()
         if path:
-            self.current_log_lbl.setText(f"Active log file:\n{path}")
+            filename = os.path.basename(path)
+            self.current_log_lbl.setText(f"Active: {filename}")
+            self.current_log_lbl.setToolTip(path)
         else:
             self.current_log_lbl.setText("Logging is disabled — no file is being written.")
+            self.current_log_lbl.setToolTip("")
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Save Location")
