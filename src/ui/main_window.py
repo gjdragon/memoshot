@@ -213,9 +213,11 @@ QTabBar::tab {{
     border-bottom: 1px solid {_BORDER};
     border-radius: 5px 5px 0 0;
     padding: 6px 0px;
-    min-width: 76px;
+    min-width: 88px;
+    max-width: 88px;
     margin-right: 1px;
     font-size: 12px;
+    qproperty-alignment: AlignCenter;
 }}
 QTabBar::tab:selected {{
     background: {_SURFACE};
@@ -478,33 +480,21 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addWidget(self.profile_list, 1)   # stretch=1 fills remaining space
         self._rebuild_profile_list()
 
-        # Toolbar
+        # Toolbar — 4 equal-width buttons filling the full row
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
 
-        settings_btn = QPushButton("⚙  Settings")
-        settings_btn.setStyleSheet(STYLE_ICON_BTN)
-        settings_btn.clicked.connect(lambda: self.stack.setCurrentIndex(1))
-        toolbar.addWidget(settings_btn)
-
-        folder_btn = QPushButton("📂  Open folder")
-        folder_btn.setStyleSheet(STYLE_ICON_BTN)
-        folder_btn.setToolTip("Open the screenshots save folder")
-        folder_btn.clicked.connect(self._open_save_folder)
-        toolbar.addWidget(folder_btn)
-
-        toolbar.addStretch()
-
-        min_btn = QPushButton("Tray")
-        min_btn.setStyleSheet(STYLE_ICON_BTN)
-        min_btn.setToolTip("Minimize to system tray")
-        min_btn.clicked.connect(self.hide)
-        toolbar.addWidget(min_btn)
-
-        exit_btn = QPushButton("Exit")
-        exit_btn.setStyleSheet(STYLE_EXIT_BTN)
-        exit_btn.clicked.connect(self._quit_app)
-        toolbar.addWidget(exit_btn)
+        for label, style, slot, tip in [
+            ("⚙  Settings",    STYLE_ICON_BTN,  lambda: self.stack.setCurrentIndex(1), "Open settings"),
+            ("📂  Open folder", STYLE_ICON_BTN,  self._open_save_folder,                "Open screenshots folder"),
+            ("Tray",           STYLE_ICON_BTN,  self.hide,                             "Minimize to tray"),
+            ("Exit",           STYLE_EXIT_BTN,  self._quit_app,                        "Exit MemoShot"),
+        ]:
+            btn = QPushButton(label)
+            btn.setStyleSheet(style)
+            btn.setToolTip(tip)
+            btn.clicked.connect(slot)
+            toolbar.addWidget(btn, 1)   # stretch=1 → all four share space equally
 
         layout.addLayout(toolbar)
         outer.addWidget(body)
