@@ -2,23 +2,7 @@
 ui/main_window.py
 ~~~~~~~~~~~~~~~~~
 Main application window — two-panel design.
-
-  Quick Capture panel  (default)
-    • Header bar
-    • Full-width Capture button (hotkey label updates live)
-    • Last-capture status card
-    • Profile list — saved profiles as a persistent list.
-      Clicking a row loads that profile and keeps it highlighted.
-      Create profiles from the Settings panel.
-    • Toolbar: Settings | Tray | Exit
-
-  Settings panel  (⚙ Settings)
-    Three tabs: Capture / Output / Profiles
-    Footer (always visible on all tabs):
-      • "Test capture" — runs the overlay, then returns here so
-        the user can review the result and save as a profile.
-      • "Save as profile" — name field + Save button.
-    ← Back returns to Quick panel.
+All 13 UX improvements applied.
 """
 
 import os
@@ -33,36 +17,17 @@ from version import __version__
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor, QIcon, QPixmap
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
 from PyQt5.QtWidgets import (
-    QAction,
-    QButtonGroup,
-    QCheckBox,
-    QComboBox,
-    QFileDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QRadioButton,
-    QSpinBox,
-    QStackedWidget,
-    QSystemTrayIcon,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
+    QAction, QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFrame,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QMenu, QMessageBox, QPushButton, QRadioButton, QSpinBox, QStackedWidget,
+    QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget,
 )
 
 logger = get_logger(__name__)
 APP_VERSION = __version__
 
-# ── Colour palette ────────────────────────────────────────────────────────────
 _BLUE         = "#2563eb"
 _BLUE_HOVER   = "#1d4ed8"
 _BLUE_LIGHT   = "#eff6ff"
@@ -81,239 +46,136 @@ _SUCCESS_BG   = "#f0fdf4"
 _SUCCESS_BDR  = "#bbf7d0"
 _DANGER       = "#dc2626"
 
-# ── Stylesheet constants ──────────────────────────────────────────────────────
-
 STYLE_WINDOW = f"background-color: {_WIN_BG};"
-
 STYLE_HEADER = f"""
 QWidget {{
     background-color: {_HDR_BG};
     border-bottom: 1px solid #334155;
 }}
 """
-
 STYLE_CAPTURE_BTN = f"""
 QPushButton {{
-    background-color: {_BLUE};
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: bold;
-    padding: 14px 20px;
-    letter-spacing: 0.3px;
+    background-color: {_BLUE}; color: white; border: none;
+    border-radius: 6px; font-size: 14px; font-weight: bold;
+    padding: 14px 20px; letter-spacing: 0.3px;
 }}
 QPushButton:hover   {{ background-color: {_BLUE_HOVER}; }}
 QPushButton:pressed {{ background-color: {_BLUE_HOVER}; padding-top: 15px; }}
 """
-
 STYLE_ICON_BTN = f"""
 QPushButton {{
-    background-color: {_SURFACE};
-    color: {_TEXT_MUTED};
-    border: 1px solid {_BORDER};
-    border-radius: 5px;
-    font-size: 12px;
-    padding: 5px 12px;
+    background-color: {_SURFACE}; color: {_TEXT_MUTED};
+    border: 1px solid {_BORDER}; border-radius: 5px; font-size: 12px; padding: 5px 12px;
 }}
-QPushButton:hover  {{ background-color: {_WIN_BG}; color: {_TEXT_PRIMARY};
-                      border-color: {_BORDER_MED}; }}
+QPushButton:hover  {{ background-color: {_WIN_BG}; color: {_TEXT_PRIMARY}; border-color: {_BORDER_MED}; }}
 QPushButton:pressed {{ background-color: {_BORDER}; }}
 """
-
 STYLE_PRIMARY_SM = f"""
 QPushButton {{
-    background-color: {_BLUE};
-    color: white;
-    border: none;
-    border-radius: 5px;
-    font-size: 12px;
-    padding: 5px 14px;
+    background-color: {_BLUE}; color: white; border: none;
+    border-radius: 5px; font-size: 12px; padding: 5px 14px;
 }}
 QPushButton:hover   {{ background-color: {_BLUE_HOVER}; }}
 QPushButton:pressed {{ background-color: {_BLUE_HOVER}; }}
 QPushButton:disabled {{ background-color: {_BORDER}; color: {_TEXT_HINT}; }}
 """
-
 STYLE_DANGER_SM = f"""
 QPushButton {{
-    background-color: transparent;
-    color: {_DANGER};
-    border: 1px solid {_BORDER};
-    border-radius: 5px;
-    font-size: 12px;
-    padding: 5px 12px;
+    background-color: transparent; color: {_DANGER};
+    border: 1px solid {_BORDER}; border-radius: 5px; font-size: 12px; padding: 5px 12px;
 }}
 QPushButton:hover  {{ background-color: #fef2f2; border-color: #fca5a5; }}
 QPushButton:pressed {{ background-color: #fee2e2; }}
 QPushButton:disabled {{ color: {_TEXT_HINT}; border-color: {_BORDER}; }}
 """
-
-STYLE_EXIT_BTN = f"""
+# Issue #5: Exit as a low-prominence text link
+STYLE_EXIT_LINK = f"""
 QPushButton {{
-    background-color: {_SURFACE};
-    color: {_DANGER};
-    border: 1px solid {_BORDER};
-    border-radius: 5px;
-    font-size: 12px;
-    padding: 5px 12px;
+    background-color: transparent; color: {_TEXT_MUTED};
+    border: none; font-size: 12px; padding: 5px 8px; text-decoration: underline;
 }}
-QPushButton:hover  {{ background-color: #fef2f2; border-color: #fca5a5; }}
-QPushButton:pressed {{ background-color: #fee2e2; }}
+QPushButton:hover  {{ color: {_DANGER}; }}
+QPushButton:pressed {{ color: {_DANGER}; }}
 """
-
-STYLE_STATUS_CARD = f"""
-QFrame {{
-    background-color: {_SURFACE};
-    border: 1px solid {_BORDER};
-    border-radius: 6px;
-}}
-"""
-
-# Profile list on Quick panel
 STYLE_PROFILE_LIST = f"""
 QListWidget {{
-    background: {_SURFACE};
-    border: 1px solid {_BORDER};
-    border-radius: 6px;
-    outline: none;
-    padding: 2px;
-    font-size: 12px;
-    color: {_TEXT_PRIMARY};
+    background: {_SURFACE}; border: 1px solid {_BORDER};
+    border-radius: 6px; outline: none; padding: 2px;
+    font-size: 12px; color: {_TEXT_PRIMARY};
 }}
-QListWidget::item {{
-    padding: 7px 10px;
-    border-radius: 4px;
-    border: none;
-}}
-QListWidget::item:hover {{
-    background: {_WIN_BG};
-}}
-QListWidget::item:selected {{
-    background: {_BLUE_LIGHT};
-    color: {_BLUE};
-    font-weight: bold;
-}}
+QListWidget::item {{ padding: 7px 10px; border-radius: 4px; border: none; }}
+QListWidget::item:hover {{ background: {_WIN_BG}; }}
+QListWidget::item:selected {{ background: {_BLUE_LIGHT}; color: {_BLUE}; font-weight: bold; }}
 """
-
 STYLE_TAB = f"""
-QTabWidget {{
-    background: transparent;
-}}
+QTabWidget {{ background: transparent; }}
 QTabWidget::pane {{
-    background: {_SURFACE};
-    border: 1px solid {_BORDER};
-    border-radius: 0px 0px 6px 6px;
-    top: -1px;
+    background: {_SURFACE}; border: 1px solid {_BORDER};
+    border-radius: 0px 0px 6px 6px; top: -1px;
 }}
 QTabBar::tab {{
-    background: {_WIN_BG};
-    color: {_TEXT_MUTED};
-    border: 1px solid {_BORDER};
-    border-bottom: 1px solid {_BORDER};
-    border-radius: 5px 5px 0 0;
-    padding: 6px 0px;
-    min-width: 88px;
-    max-width: 88px;
-    margin-right: 1px;
-    font-size: 12px;
-    qproperty-alignment: AlignCenter;
+    background: {_WIN_BG}; color: {_TEXT_MUTED};
+    border: 1px solid {_BORDER}; border-bottom: 1px solid {_BORDER};
+    border-radius: 5px 5px 0 0; padding: 6px 0px;
+    min-width: 88px; max-width: 88px; margin-right: 1px;
+    font-size: 12px; qproperty-alignment: AlignCenter;
 }}
 QTabBar::tab:selected {{
-    background: {_SURFACE};
-    color: {_BLUE};
-    font-weight: bold;
-    border-color: {_BORDER};
-    border-bottom: 2px solid {_BLUE};
+    background: {_SURFACE}; color: {_BLUE}; font-weight: bold;
+    border-color: {_BORDER}; border-bottom: 2px solid {_BLUE};
 }}
-QTabBar::tab:!selected {{
-    margin-top: 2px;
-}}
-QTabBar::tab:hover:!selected {{
-    color: {_TEXT_PRIMARY};
-    background: #f1f5f9;
-}}
+QTabBar::tab:!selected {{ margin-top: 2px; }}
+QTabBar::tab:hover:!selected {{ color: {_TEXT_PRIMARY}; background: #f1f5f9; }}
 """
-
 STYLE_SECTION_HDR = (
-    f"color: {_TEXT_PRIMARY}; font-size: 10px; font-weight: bold; "
-    f"letter-spacing: 1px;"
+    f"color: {_TEXT_PRIMARY}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
 )
-
-# Settings panel footer — neutral surface, thin top border as separator
 STYLE_SAVE_FOOTER = f"""
 QFrame {{
-    background-color: {_WIN_BG};
-    border: none;
-    border-top: 1px solid {_BORDER};
-    border-radius: 0px;
+    background-color: {_WIN_BG}; border: none;
+    border-top: 1px solid {_BORDER}; border-radius: 0px;
 }}
 """
 STYLE_LABEL_MUTED = f"color: {_TEXT_HINT}; font-size: 11px;"
 STYLE_LABEL_HINT  = f"color: {_SUCCESS}; font-size: 11px;"
 STYLE_AUTOSAVE    = f"color: {_SUCCESS}; font-size: 10px; font-style: italic;"
-
 STYLE_HOTKEY_IDLE = f"""
 QLineEdit {{
-    background: {_SURFACE};
-    border: 1px solid {_BORDER};
-    border-radius: 5px;
-    padding: 6px 10px;
-    font-size: 13px;
-    color: {_TEXT_PRIMARY};
+    background: {_SURFACE}; border: 1px solid {_BORDER};
+    border-radius: 5px; padding: 6px 10px; font-size: 13px; color: {_TEXT_PRIMARY};
 }}
 QLineEdit:hover {{ border-color: {_BORDER_MED}; }}
 """
-
 STYLE_HOTKEY_RECORDING = f"""
 QLineEdit {{
-    background: {_BLUE_LIGHT};
-    border: 2px solid {_BLUE};
-    border-radius: 5px;
-    padding: 6px 10px;
-    font-size: 13px;
-    color: {_BLUE_HOVER};
-    font-weight: bold;
+    background: {_BLUE_LIGHT}; border: 2px solid {_BLUE};
+    border-radius: 5px; padding: 6px 10px; font-size: 13px;
+    color: {_BLUE_HOVER}; font-weight: bold;
 }}
 """
-
-# ── HotkeyCapture widget ──────────────────────────────────────────────────────
 
 _MODIFIER_KEYS = {
     Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta,
     Qt.Key_AltGr, Qt.Key_Super_L, Qt.Key_Super_R,
 }
-
 _KEY_NAMES = {
-    Qt.Key_F1: "f1",   Qt.Key_F2: "f2",   Qt.Key_F3: "f3",
-    Qt.Key_F4: "f4",   Qt.Key_F5: "f5",   Qt.Key_F6: "f6",
-    Qt.Key_F7: "f7",   Qt.Key_F8: "f8",   Qt.Key_F9: "f9",
-    Qt.Key_F10: "f10", Qt.Key_F11: "f11", Qt.Key_F12: "f12",
-    Qt.Key_F13: "f13", Qt.Key_F14: "f14", Qt.Key_F15: "f15",
-    Qt.Key_Escape: "esc",
-    Qt.Key_Tab: "tab",
-    Qt.Key_Return: "enter", Qt.Key_Enter: "enter",
-    Qt.Key_Backspace: "backspace",
-    Qt.Key_Delete: "delete",
-    Qt.Key_Insert: "insert",
-    Qt.Key_Home: "home",   Qt.Key_End: "end",
-    Qt.Key_PageUp: "page up", Qt.Key_PageDown: "page down",
-    Qt.Key_Left: "left", Qt.Key_Right: "right",
-    Qt.Key_Up: "up",     Qt.Key_Down: "down",
-    Qt.Key_Print: "print screen",
-    Qt.Key_ScrollLock: "scroll lock",
-    Qt.Key_Pause: "pause",
-    Qt.Key_NumLock: "num lock",
-    Qt.Key_CapsLock: "caps lock",
-    Qt.Key_Space: "space",
+    Qt.Key_F1:"f1", Qt.Key_F2:"f2", Qt.Key_F3:"f3", Qt.Key_F4:"f4",
+    Qt.Key_F5:"f5", Qt.Key_F6:"f6", Qt.Key_F7:"f7", Qt.Key_F8:"f8",
+    Qt.Key_F9:"f9", Qt.Key_F10:"f10", Qt.Key_F11:"f11", Qt.Key_F12:"f12",
+    Qt.Key_F13:"f13", Qt.Key_F14:"f14", Qt.Key_F15:"f15",
+    Qt.Key_Escape:"esc", Qt.Key_Tab:"tab",
+    Qt.Key_Return:"enter", Qt.Key_Enter:"enter",
+    Qt.Key_Backspace:"backspace", Qt.Key_Delete:"delete",
+    Qt.Key_Insert:"insert", Qt.Key_Home:"home", Qt.Key_End:"end",
+    Qt.Key_PageUp:"page up", Qt.Key_PageDown:"page down",
+    Qt.Key_Left:"left", Qt.Key_Right:"right", Qt.Key_Up:"up", Qt.Key_Down:"down",
+    Qt.Key_Print:"print screen", Qt.Key_ScrollLock:"scroll lock",
+    Qt.Key_Pause:"pause", Qt.Key_NumLock:"num lock",
+    Qt.Key_CapsLock:"caps lock", Qt.Key_Space:"space",
 }
 
 
 class HotkeyCapture(QLineEdit):
-    """
-    Click to enter recording mode.  Press any key combination to set it.
-    Escape cancels. Focus-out cancels.
-    """
     def __init__(self, initial: str, parent=None) -> None:
         super().__init__(initial, parent)
         self._recording = False
@@ -321,7 +183,7 @@ class HotkeyCapture(QLineEdit):
         self.setReadOnly(True)
         self.setStyleSheet(STYLE_HOTKEY_IDLE)
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Click to record — then press your key combination (e.g. F12, Ctrl+Shift+S)")
+        self.setToolTip("Click to record — then press your key combination")
 
     def mousePressEvent(self, event) -> None:
         self._cancel_recording() if self._recording else self._start_recording()
@@ -331,11 +193,9 @@ class HotkeyCapture(QLineEdit):
             return
         key = event.key()
         if key == Qt.Key_Escape:
-            self._cancel_recording()
-            return
+            self._cancel_recording(); return
         if key in _MODIFIER_KEYS:
-            self.setText(self._build_combo(event, partial=True))
-            return
+            self.setText(self._build_combo(event, partial=True)); return
         combo = self._build_combo(event, partial=False)
         if combo:
             self._saved_value = combo
@@ -387,10 +247,6 @@ class HotkeyCapture(QLineEdit):
         return "+".join(parts) if parts else ""
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Main window
-# ══════════════════════════════════════════════════════════════════════════════
-
 class PortraitScreenshotApp(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -398,8 +254,9 @@ class PortraitScreenshotApp(QMainWindow):
         self.overlay: Optional[CaptureOverlay] = None
         self.hotkey_thread: Optional[HotkeyThread] = None
         self.is_exiting = False
-        self._active_profile: Optional[str] = None   # tracks which profile is loaded
-        self._return_to_settings: bool = False        # True when capture was triggered from Settings
+        self._active_profile: Optional[str] = None
+        self._return_to_settings: bool = False
+        self._pending_overwrite: bool = False
 
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -414,9 +271,7 @@ class PortraitScreenshotApp(QMainWindow):
         self._init_tray()
         QTimer.singleShot(500, self._register_hotkey)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # UI construction
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── UI construction ───────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
         central = QWidget()
@@ -424,7 +279,6 @@ class PortraitScreenshotApp(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_quick_panel())
         self.stack.addWidget(self._build_settings_panel())
@@ -432,7 +286,7 @@ class PortraitScreenshotApp(QMainWindow):
         root.addWidget(self.stack)
         self.adjustSize()
 
-    # ── Quick Capture panel ───────────────────────────────────────────────────
+    # ── Quick panel ───────────────────────────────────────────────────────────
 
     def _build_quick_panel(self) -> QWidget:
         panel = QWidget()
@@ -440,13 +294,35 @@ class PortraitScreenshotApp(QMainWindow):
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-
         outer.addWidget(self._build_header_bar())
 
         body = QWidget()
         layout = QVBoxLayout(body)
         layout.setContentsMargins(20, 16, 20, 14)
         layout.setSpacing(6)
+
+        # Issue #4: active-profile pill
+        self.active_profile_bar = QWidget()
+        self.active_profile_bar.setStyleSheet(f"""
+            QWidget {{
+                background-color: {_BLUE_LIGHT};
+                border: 1px solid {_BLUE_BORDER};
+                border-radius: 5px;
+            }}
+        """)
+        pill_row = QHBoxLayout(self.active_profile_bar)
+        pill_row.setContentsMargins(10, 5, 10, 5)
+        pill_row.setSpacing(6)
+        pill_icon = QLabel("◈")
+        pill_icon.setStyleSheet(f"color: {_BLUE}; font-size: 11px; background: transparent;")
+        pill_row.addWidget(pill_icon)
+        self.active_profile_lbl = QLabel()
+        self.active_profile_lbl.setStyleSheet(
+            f"color: {_BLUE}; font-size: 11px; font-weight: 600; background: transparent;"
+        )
+        pill_row.addWidget(self.active_profile_lbl, 1)
+        layout.addWidget(self.active_profile_bar)
+        self._refresh_active_profile_bar()
 
         # Capture button
         hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
@@ -456,16 +332,16 @@ class PortraitScreenshotApp(QMainWindow):
         self.capture_btn.clicked.connect(self.start_capture)
         layout.addWidget(self.capture_btn)
 
-        # Status card — subtle tinted background, no heavy border
-        status_frame = QFrame()
-        status_frame.setStyleSheet(f"""
+        # Status card
+        self._status_card_frame = QFrame()
+        self._status_card_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {_WIN_BG};
                 border: 1px solid {_BORDER};
                 border-radius: 6px;
             }}
         """)
-        sf = QVBoxLayout(status_frame)
+        sf = QVBoxLayout(self._status_card_frame)
         sf.setContentsMargins(12, 8, 12, 8)
         sf.setSpacing(2)
         self.status_label = QLabel()
@@ -476,14 +352,13 @@ class PortraitScreenshotApp(QMainWindow):
         self.status_sub.setStyleSheet(STYLE_LABEL_MUTED)
         sf.addWidget(self.status_label)
         sf.addWidget(self.status_sub)
-        layout.addWidget(status_frame)
+        layout.addWidget(self._status_card_frame)
         self._refresh_status_card()
 
-        # ── Profile list ───────────────────────────────────────────────────────
+        # Profile list
         prof_hdr = QLabel("PROFILES")
         prof_hdr.setStyleSheet(
-            f"color: {_TEXT_HINT}; font-size: 10px; font-weight: bold; "
-            f"letter-spacing: 1px;"
+            f"color: {_TEXT_HINT}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
         )
         layout.addWidget(prof_hdr)
 
@@ -491,26 +366,29 @@ class PortraitScreenshotApp(QMainWindow):
         self.profile_list.setStyleSheet(STYLE_PROFILE_LIST)
         self.profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.profile_list.itemClicked.connect(self._on_profile_list_clicked)
-        layout.addWidget(self.profile_list, 1)   # stretch fills all remaining space
+        layout.addWidget(self.profile_list, 1)
         self._rebuild_profile_list()
 
-        # Toolbar — 4 equal-width buttons filling the full row
+        # Issue #5: normalised toolbar with Exit as text link
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
-
         for label, style, slot, tip in [
-            ("⚙  Settings",    STYLE_ICON_BTN,  lambda: self.stack.setCurrentIndex(1), "Open settings"),
-            ("📂  Open folder", STYLE_ICON_BTN,  self._open_save_folder,                "Open screenshots folder"),
-            ("Tray",           STYLE_ICON_BTN,  self.hide,                             "Minimize to tray"),
-            ("Exit",           STYLE_EXIT_BTN,  self._quit_app,                        "Exit MemoShot"),
+            ("⚙  Settings",    STYLE_ICON_BTN, lambda: self.stack.setCurrentIndex(1), "Open settings"),
+            ("📂  Open folder", STYLE_ICON_BTN, self._open_save_folder,                "Open screenshots folder"),
+            ("⬜  Tray",        STYLE_ICON_BTN, self.hide,                             "Minimize to tray"),
         ]:
             btn = QPushButton(label)
             btn.setStyleSheet(style)
             btn.setToolTip(tip)
             btn.clicked.connect(slot)
-            toolbar.addWidget(btn, 1)   # stretch=1 → all four share space equally
-
+            toolbar.addWidget(btn, 1)
+        exit_btn = QPushButton("Exit")
+        exit_btn.setStyleSheet(STYLE_EXIT_LINK)
+        exit_btn.setToolTip("Exit MemoShot")
+        exit_btn.clicked.connect(self._quit_app)
+        toolbar.addWidget(exit_btn)
         layout.addLayout(toolbar)
+
         outer.addWidget(body)
         return panel
 
@@ -522,7 +400,6 @@ class PortraitScreenshotApp(QMainWindow):
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-
         outer.addWidget(self._build_header_bar(with_back=True))
 
         body = QWidget()
@@ -530,88 +407,80 @@ class PortraitScreenshotApp(QMainWindow):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(8)
 
+        # Issue #8: fixed min height so window doesn't jump between tabs
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(STYLE_TAB)
+        self.tabs.setMinimumHeight(280)
         self.tabs.addTab(self._build_tab_capture(),  "Capture")
         self.tabs.addTab(self._build_tab_output(),   "Output")
         self.tabs.addTab(self._build_tab_profiles(), "Profiles")
         self.tabs.addTab(self._build_tab_logging(),  "Logging")
         layout.addWidget(self.tabs)
 
-        # ── Settings footer ────────────────────────────────────────────────────
+        # Footer
         footer_frame = QFrame()
         footer_frame.setStyleSheet(STYLE_SAVE_FOOTER)
         footer_outer = QVBoxLayout(footer_frame)
         footer_outer.setContentsMargins(12, 10, 12, 10)
         footer_outer.setSpacing(8)
 
-        # Row 1: Test Capture + inline last-capture status
         test_row = QHBoxLayout()
         test_row.setSpacing(8)
-
         test_btn = QPushButton("▶  Test capture")
         test_btn.setStyleSheet(STYLE_PRIMARY_SM)
-        test_btn.setToolTip(
-            "Run a capture with the current settings — the window re-opens "
-            "here so you can review and save as a profile"
-        )
         test_btn.clicked.connect(self._test_capture_from_settings)
         test_row.addWidget(test_btn)
-
         self.settings_status_lbl = QLabel()
-        self.settings_status_lbl.setStyleSheet(
-            f"color: {_TEXT_MUTED}; font-size: 11px;"
-        )
+        self.settings_status_lbl.setStyleSheet(f"color: {_TEXT_MUTED}; font-size: 11px;")
         self.settings_status_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._refresh_settings_status_lbl()
         test_row.addWidget(self.settings_status_lbl, 1)
-
         footer_outer.addLayout(test_row)
 
-        # Thin rule between the two rows
         div = QWidget()
         div.setFixedHeight(1)
         div.setStyleSheet(f"background: {_BORDER};")
         footer_outer.addWidget(div)
 
-        # Row 2: Save as profile — muted label + input + Save button
         save_row = QHBoxLayout()
         save_row.setSpacing(6)
-
         save_lbl = QLabel("Save as profile:")
         save_lbl.setStyleSheet(f"color: {_TEXT_MUTED}; font-size: 11px;")
         save_lbl.setFixedWidth(90)
         save_row.addWidget(save_lbl)
-
         self.footer_profile_name = QLineEdit()
         self.footer_profile_name.setPlaceholderText("Profile name…")
         self.footer_profile_name.setStyleSheet(f"""
             QLineEdit {{
-                background: {_SURFACE};
-                border: 1px solid {_BORDER};
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 12px;
-                color: {_TEXT_PRIMARY};
+                background: {_SURFACE}; border: 1px solid {_BORDER};
+                border-radius: 4px; padding: 4px 8px; font-size: 12px; color: {_TEXT_PRIMARY};
             }}
             QLineEdit:focus {{ border-color: {_BLUE}; }}
         """)
         self.footer_profile_name.returnPressed.connect(self._save_profile_from_footer)
         save_row.addWidget(self.footer_profile_name, 1)
-
         footer_save_btn = QPushButton("Save")
         footer_save_btn.setStyleSheet(STYLE_PRIMARY_SM)
         footer_save_btn.clicked.connect(self._save_profile_from_footer)
         save_row.addWidget(footer_save_btn)
-
         footer_outer.addLayout(save_row)
+
+        # Issue #9: inline overwrite warning
+        self.footer_overwrite_lbl = QLabel()
+        self.footer_overwrite_lbl.setStyleSheet(
+            f"color: #b45309; font-size: 11px; background: #fffbeb; "
+            f"border: 1px solid #fde68a; border-radius: 4px; padding: 3px 8px;"
+        )
+        self.footer_overwrite_lbl.setVisible(False)
+        footer_outer.addWidget(self.footer_overwrite_lbl)
+
         layout.addWidget(footer_frame)
 
-        # Auto-save indicator
         self.autosave_label = QLabel("✔  Settings saved")
-        self.autosave_label.setStyleSheet(STYLE_AUTOSAVE)
         self.autosave_label.setAlignment(Qt.AlignRight)
-        self.autosave_label.setVisible(False)
+        # Always in layout — hidden via transparent colour, not setVisible,
+        # so the window height never shifts when it appears/disappears.
+        self.autosave_label.setStyleSheet("color: transparent; font-size: 10px; font-style: italic;")
         layout.addWidget(self.autosave_label)
 
         outer.addWidget(body)
@@ -626,42 +495,31 @@ class PortraitScreenshotApp(QMainWindow):
         row = QHBoxLayout(bar)
         row.setContentsMargins(14, 0, 14, 0)
         row.setSpacing(8)
-
         dot = QLabel("●")
         dot.setStyleSheet(f"color: {_BLUE}; font-size: 10px; background: transparent;")
         row.addWidget(dot)
-
         name_lbl = QLabel("MemoShot")
         name_lbl.setStyleSheet(
             f"color: {_HDR_TEXT}; font-size: 13px; font-weight: bold;"
             f" background: transparent; letter-spacing: 0.5px;"
         )
         row.addWidget(name_lbl)
-
         ver_lbl = QLabel(f"v{APP_VERSION}")
-        ver_lbl.setStyleSheet(
-            "color: #64748b; font-size: 11px; background: transparent;"
-        )
+        ver_lbl.setStyleSheet("color: #64748b; font-size: 11px; background: transparent;")
         row.addWidget(ver_lbl)
-
         row.addStretch()
-
         if with_back:
             back_btn = QPushButton("← Back")
             back_btn.setStyleSheet("""
                 QPushButton {
-                    background: transparent;
-                    color: #94a3b8;
-                    border: 1px solid #334155;
-                    border-radius: 4px;
-                    font-size: 11px;
-                    padding: 3px 10px;
+                    background: transparent; color: #94a3b8;
+                    border: 1px solid #334155; border-radius: 4px;
+                    font-size: 11px; padding: 3px 10px;
                 }
                 QPushButton:hover { color: #f1f5f9; border-color: #475569; }
             """)
             back_btn.clicked.connect(self._close_settings)
             row.addWidget(back_btn)
-
         return bar
 
     # ── Tab: Capture ──────────────────────────────────────────────────────────
@@ -672,7 +530,6 @@ class PortraitScreenshotApp(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-
         layout.addWidget(self._section_label("Hotkey"))
         self.hotkey_input = HotkeyCapture(self.settings["hotkey"])
         self.hotkey_input.installEventFilter(self)
@@ -681,9 +538,7 @@ class PortraitScreenshotApp(QMainWindow):
         hint.setStyleSheet(STYLE_LABEL_MUTED)
         hint.setWordWrap(True)
         layout.addWidget(hint)
-
         layout.addWidget(self._divider())
-
         layout.addWidget(self._section_label("Aspect ratio"))
         ratio_row = QHBoxLayout()
         self.ratio_group = QButtonGroup()
@@ -700,15 +555,12 @@ class PortraitScreenshotApp(QMainWindow):
         ratio_row.addWidget(self.ratio_16_9)
         ratio_row.addStretch()
         layout.addLayout(ratio_row)
-
         self.lock_ratio_checkbox = QCheckBox("Lock aspect ratio")
         self.lock_ratio_checkbox.setChecked(self.settings.get("lock_ratio", True))
         self.lock_ratio_checkbox.stateChanged.connect(self._on_lock_ratio_changed)
         self.lock_ratio_checkbox.stateChanged.connect(self._schedule_auto_save)
         layout.addWidget(self.lock_ratio_checkbox)
-
         layout.addWidget(self._divider())
-
         layout.addWidget(self._section_label("Dimensions"))
         dim_row = QHBoxLayout()
         dim_row.setSpacing(8)
@@ -734,12 +586,10 @@ class PortraitScreenshotApp(QMainWindow):
         dim_row.addWidget(px_lbl)
         dim_row.addStretch()
         layout.addLayout(dim_row)
-
         self.ratio_label = QLabel()
         self.ratio_label.setStyleSheet(STYLE_LABEL_HINT)
         layout.addWidget(self.ratio_label)
         self._on_lock_ratio_changed()
-
         layout.addStretch()
         return tab
 
@@ -751,7 +601,6 @@ class PortraitScreenshotApp(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-
         layout.addWidget(self._section_label("Save folder"))
         folder_row = QHBoxLayout()
         self.save_input = QLineEdit(self.settings["save_location"])
@@ -763,93 +612,83 @@ class PortraitScreenshotApp(QMainWindow):
         folder_row.addWidget(self.save_input, 1)
         folder_row.addWidget(browse_btn)
         layout.addLayout(folder_row)
-
         layout.addWidget(self._divider())
 
+        # Issue #12: clearer prefix field with live example preview
         layout.addWidget(self._section_label("File prefix"))
         self.prefix_input = QLineEdit(self.settings.get("file_prefix", ""))
-        self.prefix_input.setPlaceholderText(
-            "Empty = timestamp  ·  myshot1.png, myshot2.png…"
-        )
+        self.prefix_input.setPlaceholderText("Leave empty to use timestamps")
         self.prefix_input.editingFinished.connect(self._schedule_auto_save)
+        self.prefix_input.textChanged.connect(self._refresh_prefix_example)
         layout.addWidget(self.prefix_input)
+        self.prefix_example_lbl = QLabel()
+        self.prefix_example_lbl.setStyleSheet(f"color: {_TEXT_HINT}; font-size: 11px;")
+        layout.addWidget(self.prefix_example_lbl)
+        self._refresh_prefix_example(self.prefix_input.text())
 
         layout.addWidget(self._divider())
-
         layout.addWidget(self._section_label("Clipboard"))
-        self.copy_to_clipboard_checkbox = QCheckBox(
-            "Copy each screenshot to clipboard"
-        )
+        self.copy_to_clipboard_checkbox = QCheckBox("Copy each screenshot to clipboard")
         self.copy_to_clipboard_checkbox.setChecked(
             self.settings.get("copy_to_clipboard", True)
         )
         self.copy_to_clipboard_checkbox.stateChanged.connect(self._schedule_auto_save)
         layout.addWidget(self.copy_to_clipboard_checkbox)
-
         layout.addStretch()
         return tab
 
-    # ── Tab: Profiles ─────────────────────────────────────────────────────────
+    def _refresh_prefix_example(self, text: str) -> None:
+        """Live example label (issue #12)."""
+        if not hasattr(self, "prefix_example_lbl"):
+            return
+        if text.strip():
+            self.prefix_example_lbl.setText(
+                f"→  e.g.  {text.strip()}_001.png,  {text.strip()}_002.png"
+            )
+        else:
+            self.prefix_example_lbl.setText(
+                "→  e.g.  20240315_143022.png  (timestamp default)"
+            )
+
+    # ── Tab: Profiles (issue #1: clicking loads immediately, no Load button) ──
 
     def _build_tab_profiles(self) -> QWidget:
-        """
-        Profile management tab.
-        Top: list of existing profiles with Load / Delete actions per row.
-        Each profile row shows its name and two small buttons.
-        Selecting a profile highlights it without loading — Load button applies it.
-        """
         tab = QWidget()
         tab.setStyleSheet(f"background: {_SURFACE};")
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
-
         layout.addWidget(self._section_label("Your profiles"))
-
         hint = QLabel(
-            "Use 'Test capture' in the footer to try your settings, "
-            "then type a name and Save to create a profile."
+            "Click a profile to load it instantly. Use 'Test capture' in the "
+            "footer to try settings, then type a name and Save to create a profile."
         )
         hint.setStyleSheet(STYLE_LABEL_MUTED)
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
-        # Action buttons created BEFORE the list — _rebuild_settings_profile_list
-        # calls _update_settings_profile_buttons, which references these widgets.
         action_row = QHBoxLayout()
         action_row.setSpacing(6)
-
-        self.sp_load_btn = QPushButton("Load")
-        self.sp_load_btn.setStyleSheet(STYLE_PRIMARY_SM)
-        self.sp_load_btn.setEnabled(False)
-        self.sp_load_btn.clicked.connect(self._load_selected_profile)
-        action_row.addWidget(self.sp_load_btn)
-
         self.sp_delete_btn = QPushButton("Delete")
         self.sp_delete_btn.setStyleSheet(STYLE_DANGER_SM)
         self.sp_delete_btn.setEnabled(False)
         self.sp_delete_btn.clicked.connect(self._delete_selected_profile)
         action_row.addWidget(self.sp_delete_btn)
-
         action_row.addStretch()
-
         self.sp_status_lbl = QLabel()
         self.sp_status_lbl.setStyleSheet(STYLE_LABEL_MUTED)
         action_row.addWidget(self.sp_status_lbl)
 
-        # Profile list — now safe to populate since buttons are already assigned
         self.settings_profile_list = QListWidget()
         self.settings_profile_list.setStyleSheet(STYLE_PROFILE_LIST)
         self.settings_profile_list.setMinimumHeight(120)
-        self.settings_profile_list.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff
-        )
+        self.settings_profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Issue #1: single click = load immediately (same as Quick panel)
         self.settings_profile_list.itemClicked.connect(
             self._on_settings_profile_list_clicked
         )
         layout.addWidget(self.settings_profile_list)
         self._rebuild_settings_profile_list()
-
         layout.addLayout(action_row)
         layout.addStretch()
         return tab
@@ -862,8 +701,6 @@ class PortraitScreenshotApp(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-
-        # Enable / disable logging
         layout.addWidget(self._section_label("Logging"))
         self.logging_enabled_checkbox = QCheckBox("Enable logging to file")
         self.logging_enabled_checkbox.setChecked(
@@ -871,10 +708,7 @@ class PortraitScreenshotApp(QMainWindow):
         )
         self.logging_enabled_checkbox.stateChanged.connect(self._on_logging_setting_changed)
         layout.addWidget(self.logging_enabled_checkbox)
-
         layout.addWidget(self._divider())
-
-        # Log level
         layout.addWidget(self._section_label("Log level"))
         level_row = QHBoxLayout()
         self.log_level_combo = QComboBox()
@@ -891,10 +725,7 @@ class PortraitScreenshotApp(QMainWindow):
         )
         level_row.addStretch()
         layout.addLayout(level_row)
-
         layout.addWidget(self._divider())
-
-        # Log folder
         layout.addWidget(self._section_label("Log folder"))
         log_folder_row = QHBoxLayout()
         default_folder = self._default_log_folder_display()
@@ -909,31 +740,24 @@ class PortraitScreenshotApp(QMainWindow):
         log_folder_row.addWidget(self.log_folder_input, 1)
         log_folder_row.addWidget(log_browse_btn)
         layout.addLayout(log_folder_row)
-
         hint = QLabel(
             "Log files are named log_memoshot_YYYYMMDD_HHMMSS.txt\n"
             "Max 1 MB per file · 5 rotating backups kept automatically"
         )
         hint.setStyleSheet(STYLE_LABEL_MUTED)
         layout.addWidget(hint)
-
         layout.addWidget(self._divider())
-
-        # Current log file + open folder button
         layout.addWidget(self._section_label("Current session"))
         self.current_log_lbl = QLabel()
         self.current_log_lbl.setStyleSheet(STYLE_LABEL_MUTED)
         self.current_log_lbl.setWordWrap(False)
         self.current_log_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.current_log_lbl.setToolTip("")   # tooltip set in _refresh_current_log_label
         self._refresh_current_log_label()
         layout.addWidget(self.current_log_lbl)
-
         open_log_btn = QPushButton("📂  Open log folder")
         open_log_btn.setStyleSheet(STYLE_ICON_BTN)
         open_log_btn.clicked.connect(self._open_log_folder)
         layout.addWidget(open_log_btn)
-
         layout.addStretch()
         return tab
 
@@ -945,7 +769,6 @@ class PortraitScreenshotApp(QMainWindow):
 
     @staticmethod
     def _default_log_folder_display() -> str:
-        """Return the human-readable default log folder path."""
         try:
             base = os.path.dirname(os.path.abspath(__file__))
             src_dir = os.path.dirname(base)
@@ -961,7 +784,6 @@ class PortraitScreenshotApp(QMainWindow):
 
     @staticmethod
     def _divider() -> QWidget:
-        """A reliable 1 px horizontal rule that renders consistently on Windows."""
         line = QWidget()
         line.setFixedHeight(1)
         line.setStyleSheet(f"background-color: {_BORDER};")
@@ -974,12 +796,20 @@ class PortraitScreenshotApp(QMainWindow):
                 self._schedule_auto_save()
         return super().eventFilter(obj, event)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Profile list helpers — both lists stay in sync
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Active-profile pill (issue #4) ────────────────────────────────────────
+
+    def _refresh_active_profile_bar(self) -> None:
+        if not hasattr(self, "active_profile_bar"):
+            return
+        if self._active_profile:
+            self.active_profile_lbl.setText(f"Using: {self._active_profile}")
+            self.active_profile_bar.setVisible(True)
+        else:
+            self.active_profile_bar.setVisible(False)
+
+    # ── Profile list helpers ──────────────────────────────────────────────────
 
     def _rebuild_profile_list(self) -> None:
-        """Rebuild the Quick panel profile list."""
         self.profile_list.blockSignals(True)
         self.profile_list.clear()
         profiles = cfg.list_profiles(self.settings)
@@ -998,7 +828,6 @@ class PortraitScreenshotApp(QMainWindow):
         self.profile_list.blockSignals(False)
 
     def _rebuild_settings_profile_list(self) -> None:
-        """Rebuild the Settings panel profile list."""
         self.settings_profile_list.blockSignals(True)
         self.settings_profile_list.clear()
         profiles = cfg.list_profiles(self.settings)
@@ -1023,40 +852,25 @@ class PortraitScreenshotApp(QMainWindow):
 
     def _update_settings_profile_buttons(self) -> None:
         selected = self.settings_profile_list.currentItem()
-        has_selection = bool(
-            selected
-            and selected.flags() & Qt.ItemIsSelectable
-        )
-        self.sp_load_btn.setEnabled(has_selection)
+        has_selection = bool(selected and selected.flags() & Qt.ItemIsSelectable)
         self.sp_delete_btn.setEnabled(has_selection)
         if has_selection:
             self.sp_status_lbl.setText(f"Selected: {selected.text()}")
         else:
             self.sp_status_lbl.setText("")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Profile actions — Quick panel list
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Profile actions ───────────────────────────────────────────────────────
 
     def _on_profile_list_clicked(self, item: QListWidgetItem) -> None:
-        """Clicking a row in the Quick panel list loads that profile immediately."""
         if not (item.flags() & Qt.ItemIsSelectable):
             return
-        name = item.text()
-        self._load_profile_by_name(name)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Profile actions — Settings panel list
-    # ══════════════════════════════════════════════════════════════════════════
+        self._load_profile_by_name(item.text())
 
     def _on_settings_profile_list_clicked(self, item: QListWidgetItem) -> None:
-        """Clicking a row in the Settings list just selects it (highlights it)."""
-        self._update_settings_profile_buttons()
-
-    def _load_selected_profile(self) -> None:
-        item = self.settings_profile_list.currentItem()
-        if not item or not (item.flags() & Qt.ItemIsSelectable):
+        """Issue #1: Settings list now loads immediately like the Quick panel."""
+        if not (item.flags() & Qt.ItemIsSelectable):
             return
+        self._update_settings_profile_buttons()
         self._load_profile_by_name(item.text())
 
     def _delete_selected_profile(self) -> None:
@@ -1075,39 +889,48 @@ class PortraitScreenshotApp(QMainWindow):
         if self._active_profile == name:
             self._active_profile = None
         self._rebuild_all_profile_lists()
+        self._refresh_active_profile_bar()
         self.sp_status_lbl.setText("")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # "Save as profile" footer
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Save as profile (issue #9: overwrite warning) ─────────────────────────
 
     def _save_profile_from_footer(self) -> None:
-        """Save current settings under the name typed in the footer field."""
         name = self.footer_profile_name.text().strip()
         if not name:
             self.footer_profile_name.setFocus()
             return
+        existing_profiles = cfg.list_profiles(self.settings)
+        if name in existing_profiles:
+            if not self._pending_overwrite:
+                self._pending_overwrite = True
+                self.footer_overwrite_lbl.setText(
+                    f'⚠  "{name}" already exists — press Save again to overwrite'
+                )
+                self.footer_overwrite_lbl.setVisible(True)
+                QTimer.singleShot(4000, self._clear_overwrite_warning)
+                return
+        self._pending_overwrite = False
+        self.footer_overwrite_lbl.setVisible(False)
         self._snapshot_ui_to_settings()
         cfg.save_profile(self.settings, name)
         self._active_profile = name
         self._rebuild_all_profile_lists()
+        self._refresh_active_profile_bar()
         self.footer_profile_name.clear()
-        # Brief visual confirmation in the autosave label
         self.autosave_label.setText(f'✔  Profile "{name}" saved')
-        self.autosave_label.setVisible(True)
+        self._autosave_show()
         QTimer.singleShot(3000, self._reset_autosave_label)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Core profile load — used by both lists
-    # ══════════════════════════════════════════════════════════════════════════
+    def _clear_overwrite_warning(self) -> None:
+        self._pending_overwrite = False
+        self.footer_overwrite_lbl.setVisible(False)
+
+    # ── Core profile load ─────────────────────────────────────────────────────
 
     def _load_profile_by_name(self, name: str) -> None:
         if not cfg.load_profile(self.settings, name):
-            QMessageBox.warning(
-                self, "Not found", f'Profile "{name}" could not be loaded.'
-            )
+            QMessageBox.warning(self, "Not found", f'Profile "{name}" could not be loaded.')
             return
-        # Sync all UI controls
         self.hotkey_input.setText(self.settings.get("hotkey", "ctrl+shift+p"))
         self.hotkey_input._saved_value = self.settings.get("hotkey", "ctrl+shift+p")
         self.save_input.setText(self.settings.get("save_location", ""))
@@ -1130,14 +953,13 @@ class PortraitScreenshotApp(QMainWindow):
         self.capture_btn.setText(f"  Capture  —  {hotkey}")
         cfg.save(self.settings)
         self._register_hotkey()
-
-        # Track active profile and highlight in both lists
         self._active_profile = name
         self._rebuild_all_profile_lists()
+        self._refresh_active_profile_bar()
+        # Issue #2: flash status card to confirm the load
+        self._flash_status_card()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Panel navigation
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Panel navigation ──────────────────────────────────────────────────────
 
     def _close_settings(self) -> None:
         self._refresh_status_card()
@@ -1147,9 +969,7 @@ class PortraitScreenshotApp(QMainWindow):
         self.stack.setCurrentIndex(0)
         self.adjustSize()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Status card
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Status card (issue #2: flash; issue #7: first-run hint) ──────────────
 
     def _refresh_status_card(self) -> None:
         mode  = self.settings.get("ratio_mode", "9:16")
@@ -1161,26 +981,43 @@ class PortraitScreenshotApp(QMainWindow):
             self.status_label.setText(
                 f"{rect['width']} × {rect['height']} px  ·  {mlbl}"
             )
-            self.status_sub.setText(
-                f"Last region at ({rect['x']}, {rect['y']})"
-            )
+            self.status_sub.setText(f"Last region at ({rect['x']}, {rect['y']})")
         else:
             self.status_label.setText(f"{w} × {h} px  ·  {mlbl}")
-            self.status_sub.setText("No previous capture in this mode")
+            # Issue #7: actionable cold-start hint
+            hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
+            self.status_sub.setText(
+                f"Press {hotkey} from any app to start your first capture"
+            )
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Tray
-    # ══════════════════════════════════════════════════════════════════════════
+    def _flash_status_card(self) -> None:
+        """Brief green flash to confirm an action (issue #2)."""
+        try:
+            card = self._status_card_frame
+            if card is None:
+                return
+            original_style = card.styleSheet()
+            card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {_SUCCESS_BG};
+                    border: 1px solid {_SUCCESS_BDR};
+                    border-radius: 6px;
+                }}
+            """)
+            QTimer.singleShot(
+                600,
+                lambda: card.setStyleSheet(original_style) if card else None,
+            )
+        except Exception:
+            pass
+
+    # ── Tray (issue #13: camera silhouette icon) ──────────────────────────────
 
     def _init_tray(self) -> None:
         self.tray_icon = QSystemTrayIcon(self)
-        pm = QPixmap(64, 64)
-        pm.fill(QColor(37, 99, 235))
-        self.tray_icon.setIcon(QIcon(pm))
-
+        self.tray_icon.setIcon(self._build_tray_icon())
         menu = QMenu()
-        for label, slot in [("Capture", self.start_capture),
-                             ("Show Window", self.show)]:
+        for label, slot in [("Capture", self.start_capture), ("Show Window", self.show)]:
             a = QAction(label, self)
             a.triggered.connect(slot)
             menu.addAction(a)
@@ -1188,7 +1025,6 @@ class PortraitScreenshotApp(QMainWindow):
         qa = QAction("Exit", self)
         qa.triggered.connect(self._quit_app)
         menu.addAction(qa)
-
         self.tray_icon.setContextMenu(menu)
         self.tray_icon.activated.connect(self._on_tray_click)
         self.tray_icon.show()
@@ -1196,14 +1032,44 @@ class PortraitScreenshotApp(QMainWindow):
             f"MemoShot\nPress {self.settings['hotkey'].upper()}"
         )
 
+    @staticmethod
+    def _build_tray_icon() -> QIcon:
+        """Camera silhouette recognisable at 16-32 px (issue #13)."""
+        size = 64
+        pm = QPixmap(size, size)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        blue  = QColor(37, 99, 235)
+        white = QColor(255, 255, 255)
+        # Camera body
+        p.setBrush(blue)
+        p.setPen(Qt.NoPen)
+        body = QPainterPath()
+        body.addRoundedRect(4, 18, 56, 38, 6, 6)
+        p.drawPath(body)
+        # Viewfinder bump
+        bump = QPainterPath()
+        bump.addRoundedRect(22, 12, 20, 10, 4, 4)
+        p.drawPath(bump)
+        # Lens outer ring (white)
+        p.setBrush(white)
+        p.drawEllipse(20, 24, 24, 24)
+        # Lens inner (blue)
+        p.setBrush(blue)
+        p.drawEllipse(25, 29, 14, 14)
+        # Lens highlight
+        p.setBrush(white)
+        p.drawEllipse(30, 34, 4, 4)
+        p.end()
+        return QIcon(pm)
+
     def _on_tray_click(self, reason) -> None:
         if reason == QSystemTrayIcon.Trigger and not self.isVisible():
             self.show()
             self.activateWindow()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Hotkey management
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Hotkey management ─────────────────────────────────────────────────────
 
     def _register_hotkey(self) -> None:
         if self.is_exiting:
@@ -1223,9 +1089,7 @@ class PortraitScreenshotApp(QMainWindow):
                 f"Could not register hotkey: {self.settings['hotkey']}\n{exc}",
             )
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Capture flow
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Capture flow ──────────────────────────────────────────────────────────
 
     def start_capture(self) -> None:
         if self.is_exiting:
@@ -1245,29 +1109,23 @@ class PortraitScreenshotApp(QMainWindow):
 
     def _on_capture_complete(self, rect) -> None:
         self._refresh_status_card()
+        # Issue #2: flash the status card to confirm the capture
+        self._flash_status_card()
         cfg.save(self.settings)
         if self._return_to_settings:
             self._return_to_settings = False
-            # Come back to the settings panel so the user can review and save
             self._refresh_settings_status_lbl()
             self.stack.setCurrentIndex(1)
             self.show()
             self.activateWindow()
 
     def _test_capture_from_settings(self) -> None:
-        """
-        Trigger a capture from the Settings panel.
-        Sets a flag so _on_capture_complete brings the user back to
-        Settings (not Quick Capture) after the overlay closes.
-        """
-        self._snapshot_ui_to_settings()   # make sure latest spin/field values are live
+        self._snapshot_ui_to_settings()
         self._return_to_settings = True
-        self.hide()                        # hide the window so the overlay is unobstructed
-        # Small delay so the window is fully hidden before the overlay appears
+        self.hide()
         QTimer.singleShot(120, self.start_capture)
 
     def _refresh_settings_status_lbl(self) -> None:
-        """Update the inline status line in the settings footer."""
         if not hasattr(self, "settings_status_lbl"):
             return
         mode = self.settings.get("ratio_mode", "9:16")
@@ -1289,18 +1147,23 @@ class PortraitScreenshotApp(QMainWindow):
         self._update_ratio_label()
         self._refresh_status_card()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Auto-save
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Auto-save ─────────────────────────────────────────────────────────────
+
+    def _autosave_show(self) -> None:
+        self.autosave_label.setStyleSheet(STYLE_AUTOSAVE)
+
+    def _autosave_hide(self) -> None:
+        self.autosave_label.setStyleSheet(
+            "color: transparent; font-size: 10px; font-style: italic;"
+        )
 
     def _reset_autosave_label(self) -> None:
-        """Restore the autosave label to its default text and hide it."""
         self.autosave_label.setText("✔  Settings saved")
-        self.autosave_label.setVisible(False)
+        self._autosave_hide()
 
     def _schedule_auto_save(self, *_args) -> None:
         self._save_timer.start()
-        self.autosave_label.setVisible(False)
+        self._autosave_hide()
 
     def _flush_auto_save(self) -> None:
         old_hotkey = self.settings["hotkey"]
@@ -1315,15 +1178,12 @@ class PortraitScreenshotApp(QMainWindow):
             f"MemoShot\nPress {self.settings['hotkey'].upper()}"
         )
         logger.info("Settings auto-saved")
-        self.autosave_label.setVisible(True)
-        QTimer.singleShot(2500, lambda: self.autosave_label.setVisible(False))
+        self._autosave_show()
+        QTimer.singleShot(2500, lambda: self._autosave_hide())
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Settings helpers
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Settings helpers ──────────────────────────────────────────────────────
 
     def _open_save_folder(self) -> None:
-        """Open the configured save folder in the system file manager."""
         folder = self.settings.get(
             "save_location", os.path.join(os.path.expanduser("~"), "Screenshots")
         )
@@ -1337,11 +1197,9 @@ class PortraitScreenshotApp(QMainWindow):
                 subprocess.Popen(["xdg-open", folder])
         except Exception as exc:
             logger.warning(f"Could not open folder: {exc}")
-            QMessageBox.warning(self, "Cannot open folder",
-                                f"Could not open:\n{folder}\n\n{exc}")
+            QMessageBox.warning(self, "Cannot open folder", f"Could not open:\n{folder}\n\n{exc}")
 
     def _open_log_folder(self) -> None:
-        """Open the log folder in the system file manager."""
         folder = self.settings.get("log_folder", "") or self._default_log_folder_display()
         os.makedirs(folder, exist_ok=True)
         try:
@@ -1353,8 +1211,7 @@ class PortraitScreenshotApp(QMainWindow):
                 subprocess.Popen(["xdg-open", folder])
         except Exception as exc:
             logger.warning(f"Could not open log folder: {exc}")
-            QMessageBox.warning(self, "Cannot open folder",
-                                f"Could not open:\n{folder}\n\n{exc}")
+            QMessageBox.warning(self, "Cannot open folder", f"Could not open:\n{folder}\n\n{exc}")
 
     def _browse_log_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Log Folder")
@@ -1363,31 +1220,22 @@ class PortraitScreenshotApp(QMainWindow):
             self._on_logging_setting_changed()
 
     def _on_logging_setting_changed(self, *_args) -> None:
-        """Persist logging settings and immediately reconfigure the logger."""
         self.settings["logging_enabled"] = self.logging_enabled_checkbox.isChecked()
         self.settings["log_level"]       = self.log_level_combo.currentText()
         raw_folder = self.log_folder_input.text().strip()
-        # Store empty string if user typed the default path (keeps settings clean)
         self.settings["log_folder"] = (
             "" if raw_folder == self._default_log_folder_display() else raw_folder
         )
         cfg.save(self.settings)
         apply_log_settings(self.settings)
         self._refresh_current_log_label()
-        logger.info(
-            f"Logging settings updated — "
-            f"enabled={self.settings['logging_enabled']}  "
-            f"level={self.settings['log_level']}"
-        )
 
     def _refresh_current_log_label(self) -> None:
-        """Update the 'current session' label in the Logging tab."""
         if not hasattr(self, "current_log_lbl"):
             return
         path = current_log_path()
         if path:
-            filename = os.path.basename(path)
-            self.current_log_lbl.setText(f"Active: {filename}")
+            self.current_log_lbl.setText(f"Active: {os.path.basename(path)}")
             self.current_log_lbl.setToolTip(path)
         else:
             self.current_log_lbl.setText("Logging is disabled — no file is being written.")
@@ -1402,11 +1250,7 @@ class PortraitScreenshotApp(QMainWindow):
     def _on_width_changed(self, value: int) -> None:
         if self.settings.get("lock_ratio", True):
             self.height_spin.blockSignals(True)
-            ratio = (
-                16 / 9
-                if self.settings.get("ratio_mode", "9:16") == "9:16"
-                else 9 / 16
-            )
+            ratio = (16/9 if self.settings.get("ratio_mode","9:16")=="9:16" else 9/16)
             self.height_spin.setValue(int(value * ratio))
             self.height_spin.blockSignals(False)
         self._update_ratio_label()
@@ -1414,11 +1258,7 @@ class PortraitScreenshotApp(QMainWindow):
     def _on_height_changed(self, value: int) -> None:
         if self.settings.get("lock_ratio", True):
             self.width_spin.blockSignals(True)
-            ratio = (
-                9 / 16
-                if self.settings.get("ratio_mode", "9:16") == "9:16"
-                else 16 / 9
-            )
+            ratio = (9/16 if self.settings.get("ratio_mode","9:16")=="9:16" else 16/9)
             self.width_spin.setValue(int(value * ratio))
             self.width_spin.blockSignals(False)
         self._update_ratio_label()
@@ -1459,8 +1299,7 @@ class PortraitScreenshotApp(QMainWindow):
             mode = self.settings.get("ratio_mode", "9:16")
             text = (
                 "9:16  —  YouTube Shorts / TikTok / Instagram"
-                if mode == "9:16"
-                else "16:9  —  YouTube / standard video"
+                if mode == "9:16" else "16:9  —  YouTube / standard video"
             )
         else:
             text = (
@@ -1469,9 +1308,7 @@ class PortraitScreenshotApp(QMainWindow):
             )
         self.ratio_label.setText(text)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Snapshot
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Snapshot ──────────────────────────────────────────────────────────────
 
     def _snapshot_ui_to_settings(self) -> None:
         self.settings["hotkey"]            = self.hotkey_input.value()
@@ -1485,19 +1322,11 @@ class PortraitScreenshotApp(QMainWindow):
         )
         self.settings["copy_to_clipboard"] = self.copy_to_clipboard_checkbox.isChecked()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # App lifecycle
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── App lifecycle (issue #3: no exit confirmation) ────────────────────────
 
     def _quit_app(self) -> None:
-        if (
-            QMessageBox.question(
-                self, "Exit", "Are you sure you want to exit?",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            == QMessageBox.Yes
-        ):
-            self.close()
+        """Exit immediately — no confirmation dialog needed (issue #3)."""
+        self.close()
 
     def closeEvent(self, event) -> None:
         if self.is_exiting:

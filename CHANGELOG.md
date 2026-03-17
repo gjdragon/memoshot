@@ -6,116 +6,114 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.7.0] — UX improvements & polish
+
+### Added
+
+- **Active-profile pill on Quick Capture panel.** A small blue indicator bar
+  labelled "Using: \<name\>" now appears below the header whenever a profile is
+  loaded. It hides itself when no profile is active, so the current context is
+  always unambiguous at a glance.
+
+- **Arrow-key nudging on the capture overlay.** Arrow keys move the selection
+  rectangle 1 px per press. Holding `Shift` increases the step to 10 px. Allows
+  precise positioning without a second drag attempt. The instruction bar and the
+  `?` shortcut cheat-sheet both document the new keys.
+
+- **Overwrite warning when saving a profile.** If the name in the "Save as
+  profile" footer already exists, an amber inline warning appears —
+  *"'\<name\>' already exists — press Save again to overwrite"* — and the save
+  is blocked. Pressing Save a second time confirms the overwrite. Prevents silent
+  data loss.
+
+- **Live file-prefix example.** The Output tab shows a live preview line below
+  the prefix field that updates as you type, e.g.
+  `→  myshot_001.png,  myshot_002.png`. When the field is empty it shows the
+  timestamp default: `→  20240315_143022.png`.
+
+- **Camera silhouette tray icon.** The system-tray icon is now a painted camera
+  shape (body, viewfinder bump, lens ring, centre highlight dot) drawn with
+  `QPainter`. Recognisable at 16–32 px system-tray sizes. Replaces the
+  featureless solid blue square.
+
+### Changed
+
+- **Consistent single-click profile loading.** Clicking a profile row in
+  Settings → Profiles now loads it immediately, identical to the Quick Capture
+  panel. The separate "Load" button has been removed.
+
+- **Status card green flash.** After every successful capture or profile load,
+  the status card briefly flashes green before returning to its normal style,
+  giving clear visual confirmation that the action registered.
+
+- **Exit requires no confirmation.** The "Are you sure?" dialog has been removed.
+  Since settings auto-save on every change and the app reopens trivially, the
+  dialog added friction with no benefit.
+
+- **Status card cold-start hint.** When no capture has been made yet, the status
+  sub-label now reads *"Press \<HOTKEY\> from any app to start your first
+  capture"* instead of the unhelpful "No previous capture in this mode". The
+  hotkey shown updates dynamically.
+
+- **Settings panel minimum height.** `QTabWidget` now has
+  `setMinimumHeight(280)`, preventing the window from jumping or shrinking when
+  switching between tabs with different content heights.
+
+- **Toolbar normalised.** All three primary toolbar buttons (⚙ Settings,
+  📂 Open folder, ⬜ Tray) share a consistent icon-button style. Exit is demoted
+  to a plain underlined text link that turns red on hover.
+
+- **Dimension badge flips when near the top edge.** The "W × H px" badge on the
+  capture overlay no longer clips off-screen when the selection is near `y = 0`.
+  It renders inside the selection when there is insufficient space above.
+
+- **File prefix placeholder simplified.** Changed from the ambiguous
+  `"Empty = timestamp · myshot1.png, myshot2.png…"` to
+  `"Leave empty to use timestamps"`. The live example line takes over the role of
+  showing what the output will look like.
+
+- Version bumped to `1.7.0`.
+
+---
+
 ## [1.6.3] — UI polish
+
+---
 
 ## [1.6.2] — Multi-monitor coordinate fix, logging tab, UI polish
 
 ### Fixed
 
 - **Multi-monitor full-screen capture cuts off taskbar on non-primary screens.**
-  Root cause: three separate coordinate-space mismatches in `ui/overlay.py` when
-  monitors have different y-origins (e.g. a centre screen positioned 60 px higher
-  than the left and right screens in Windows display settings).
+  Three coordinate-space mismatches corrected in `ui/overlay.py`:
+  `_get_valid_last_region` now translates the stored rect to global coords before
+  the screen-intersection check; initial rect placement converts global screen
+  coords to local overlay coords; `_clamp_rect_to_desktop` bounds derived from
+  actual screen geometries rather than the raw overlay origin.
 
-  1. **`_get_valid_last_region`** — the stored rect is in local overlay coordinates,
-     but the intersection check `rect.intersects(screen.geometry())` was comparing
-     it against global screen coordinates. Fixed by translating the rect to global
-     coords before the check: `global_rect = rect.translated(ox, oy)`.
+- **"Logging is disabled" shown even when the checkbox is ticked.** Empty-string
+  log folder resolved before `os.makedirs` call; except branch resets
+  `_current_log_path = None` on genuine failure.
 
-  2. **Initial rect placement** — when no saved region exists, the rect was centred
-     using `sg.left()` / `sg.top()` (global screen coords) directly as local overlay
-     coords. Fixed by converting: `local_left = sg.left() - ox`,
-     `local_top = sg.top() - oy`.
+- **Tab bar scroll arrows with four tabs.** Removed `setExpanding(True)`;
+  explicit `min-width: 88px; max-width: 88px` in tab stylesheet.
 
-  3. **`_clamp_rect_to_desktop`** — used `max(ox, ...)` / `max(oy, ...)` (the raw
-     overlay origin in global coords) as the minimum bound in local coords. For a
-     setup where `oy = -60`, this allowed dragging the selection 60 px above all
-     actual screen content into a black letterbox band, causing the taskbar to be
-     cropped from the bottom of the capture. Fixed by computing the minimum local
-     bounds from the actual screen geometries: `local_min_y = min(s.top() - oy
-     for s in screens)`, which equals the topmost real pixel across all screens.
-
-- **"Logging is disabled" shown even when the checkbox is ticked.**
-  `settings["log_folder"]` is stored as `""` when the user has not customised it.
-  `dict.get("log_folder", default)` only returns the default when the key is
-  *absent*, not when it is an empty string. `os.makedirs("")` then raised
-  `FileNotFoundError`, the except branch ran without setting `_current_log_path`,
-  and `_refresh_current_log_label()` read `None` and showed "disabled". Fixed by
-  resolving the folder before the try block:
-  `log_folder = raw.strip() if raw else _default_log_folder()`.
-  The except branch now also explicitly resets `_current_log_path = None` so the
-  label is accurate when a genuine failure occurs.
-
-- **Tab bar shows scroll arrows with four tabs.**
-  `setExpanding(True)` on Windows with an active stylesheet compresses tabs to
-  their text width instead of stretching them, causing the "Logginc" clipping.
-  Removed `setExpanding`. Fixed with explicit `min-width: 88px; max-width: 88px`
-  in the tab stylesheet — four equal tabs at 88 px + three 1 px gaps = 355 px,
-  fitting within the 368 px available body width.
-
-- **Browse button text clipped to "3rowse…".**
-  `setFixedWidth(72)` was too narrow on Windows DPI. Widened both Browse buttons
-  (Output tab and Logging tab) to `80px`.
+- **Browse button text clipped.** `setFixedWidth` widened from 72 to 80 px.
 
 ### Added
 
-- **Logging tab** (fourth tab in Settings). Contains:
-  - *Enable logging* checkbox — master on/off switch, takes effect immediately.
-  - *Log level* dropdown — INFO (key events only) or DEBUG (every interaction).
-  - *Log folder* field with Browse button — defaults to `src/Logs/`; empty string
-    is stored when the user has not changed it, keeping settings clean.
-  - *File naming hint* — `log_memoshot_YYYYMMDD_HHMMSS.txt · 1 MB max · 5
-    rotating backups`.
-  - *Current session* label — shows the active log file path, or "disabled" if
-    logging is off.
-  - *📂 Open log folder* button — opens the log folder in the system file manager.
-  - Changes apply instantly without restarting the app.
-
-- **`utils/logger.py` — full rewrite.** Singleton root logger `memoshot.*` shared
-  across all modules. `apply_log_settings(settings)` tears down existing handlers
-  and rebuilds: `RotatingFileHandler` (1 MB, 5 backups) + `StreamHandler`.
-  `current_log_path()` returns the active log file path. `_default_log_folder()`
-  resolves to `src/Logs/` relative to the script directory with a fallback to
-  `~/.memoshot/Logs/`.
-
-- **`app.py`** — calls `apply_log_settings(settings)` before the window is created
-  so hotkey registration and early startup messages are captured in the log file.
-
-- **Verbose DEBUG logging** added across all modules:
-  - `capture/screenshot.py` — sequence number resolution, filename choice, rect
-    and cropped pixmap size, clipboard skip reason.
-  - `core/hotkey.py` — hotkey triggered (each press), `add_hotkey` registered,
-    `unhook_all` completed, `stop()` called.
-  - `ui/overlay.py` — overlay geometry and screen count, active screen, initial
-    rect placement, last-region restore, drag start/end with position, resize
-    start/end with edge and final rect, snap-to-screen result, shortcut panel
-    toggle, key actions (Enter/Esc/S/?), capture confirmed with final rect.
-
-- **📂 Open folder button** on the Quick Capture toolbar. Opens the configured
-  screenshots save folder in the system file manager. Cross-platform: `os.startfile`
-  on Windows, `open` on macOS, `xdg-open` on Linux. Creates the folder if it does
-  not exist yet.
+- **Logging tab** — enable/disable, log level (INFO / DEBUG), log folder with
+  Browse, current session file path, 📂 Open log folder button.
+- **`utils/logger.py`** full rewrite — singleton, `RotatingFileHandler` (1 MB,
+  5 backups), `apply_log_settings()`, `current_log_path()`.
+- **📂 Open folder button** on the Quick Capture toolbar.
+- Verbose DEBUG logging across all modules.
 
 ### Changed
 
-- **Quick Capture toolbar** — four equal-width buttons (Settings, Open folder,
-  Tray, Exit) each with `stretch=1` in the `QHBoxLayout`, filling the full row
-  evenly. The `addStretch()` separator is removed.
-- **Tab stylesheet** — `documentMode(True)` removed (caused gap line on Windows).
-  New border model: `QTabWidget::pane` with `top: -1px`; unselected tabs have
-  `margin-top: 2px`; selected tab has `border-bottom: 1px solid {_SURFACE}` to
-  erase the pane top border and merge visually with the content area.
-- **`_divider()` helper** — replaced `QFrame.HLine` (renders as a raised/sunken
-  line on Windows) with a plain `QWidget` of `setFixedHeight(1)` and a flat
-  background colour, which renders as a clean single-pixel rule on all platforms.
-- **Profile list placeholder text** on Quick panel updated to
-  "go to Settings to create one".
-- **`os`, `subprocess`, `sys`** imported at module level in `main_window.py`
-  (previously imported inline inside methods).
-- **`core/settings.py`** — three new default keys: `logging_enabled` (`True`),
-  `log_folder` (`""`), `log_level` (`"INFO"`). Fixed `list[str]` return type
-  annotation to `List[str]` from `typing` for Python 3.9 compatibility.
-- Version string updated to `1.6.2` in `version.py`.
+- Quick Capture toolbar — four equal-width buttons.
+- `_divider()` helper uses plain `QWidget` instead of `QFrame.HLine`.
+- Version bumped to `1.6.2`.
 
 ---
 
@@ -123,29 +121,17 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **▶ Test capture button** in the Settings footer. Clicking it hides the window,
-  opens the capture overlay with the current settings, and — once the overlay
-  closes — automatically re-opens the Settings panel. The inline status label in
-  the footer updates to show the captured region dimensions and position, so users
-  can verify the result and save it as a profile without leaving Settings.
-- **`_return_to_settings` flag** (`bool`, default `False`). Set in
-  `_test_capture_from_settings()`; cleared in `_on_capture_complete()`.
-- **`_refresh_settings_status_lbl()`** — updates the `"Last: W×H at (x, y)"`
-  status label in the Settings footer.
-- **`_reset_autosave_label()`** — named helper that restores the autosave label
-  text and hides it. Replaces a fragile multi-statement tuple lambda.
+- **▶ Test capture button** in the Settings footer. Hides the window, opens the
+  overlay, and re-opens Settings automatically on completion.
+- `_return_to_settings` flag and `_refresh_settings_status_lbl()` helper.
 
 ### Removed
 
-- **"+ New profile" button** from the Quick Capture panel. Profile creation now
-  belongs entirely in the Settings footer.
-- **`_new_profile_from_quick()`** method.
+- "New profile" button from the Quick Capture panel.
 
 ### Changed
 
-- Settings footer redesigned from a single row into two rows: row 1 = Test capture
-  button + inline status; row 2 = profile name field + Save button.
-- Quick panel profile list placeholder updated to "go to Settings to create one".
+- Settings footer redesigned into two rows (test row + save-as-profile row).
 - Version bumped to `1.5.0`.
 
 ---
@@ -154,23 +140,14 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Profile `QListWidget` on the Quick Capture panel** — replaces the `QComboBox`
-  that reset to a placeholder after loading. Clicking a row loads the profile and
-  keeps it highlighted in blue.
-- **Profile `QListWidget` on Settings → Profiles tab** — selecting a row highlights
-  it without loading. Load and Delete buttons activate only when a row is selected.
-- **"Save as profile" footer** — always visible below the tab widget on all three
-  tabs. Type a name and press Save or Enter.
-- **`self._active_profile`** — tracks the loaded profile name and restores the
-  highlight after any list rebuild.
-- **`_rebuild_all_profile_lists()`** and **`_load_profile_by_name(name)`** —
-  shared helpers used by both list click handlers.
+- `QListWidget` profile list on the Quick Capture panel and Settings → Profiles.
+- "Save as profile" footer always visible across all tabs.
+- `self._active_profile` tracking with highlight restore after list rebuilds.
+- `_rebuild_all_profile_lists()` and `_load_profile_by_name()` shared helpers.
 
 ### Removed
 
 - `QComboBox` profile dropdowns on both panels.
-- `_save_profile()`, `_load_profile()`, `_delete_profile()`,
-  `_refresh_profile_combo()`.
 
 ### Changed
 
@@ -182,18 +159,17 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Tab overlap** and **Python 3.9 compatibility** (`X | None` → `Optional[X]`).
+- Tab overlap and Python 3.9 compatibility (`X | None` → `Optional[X]`).
 
 ### Added
 
-- **`HotkeyCapture` widget** — click to record, press keys to commit, Escape to
-  cancel. Supports F1–F15, navigation keys, printable ASCII, and modifier combos.
+- `HotkeyCapture` widget — click to record, Escape to cancel. Supports F1–F15,
+  navigation keys, printable ASCII, and modifier combos.
 
 ### Changed
 
-- Colour scheme: purple → slate-blue (`#2563eb`). Dark slate header bar. Off-white
-  window background.
-- Header bar replaces bare title label. Settings panel adds "← Back" button.
+- Colour scheme: purple → slate-blue (`#2563eb`). Dark slate header bar.
+- Header bar and "← Back" button added to Settings panel.
 - Version bumped to `1.3.0`.
 
 ---
@@ -202,8 +178,7 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Quick Capture panel (default) and Settings panel (tabbed: Capture / Output /
-  Profiles). `QStackedWidget` switches between them.
+- Quick Capture panel and Settings panel with `QStackedWidget`.
 - Stylesheet constants and `_section_label()` / `_divider()` helpers.
 
 ### Changed
@@ -217,14 +192,14 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Auto-save** — 600 ms debounce, `✔ Settings saved` indicator.
-- **Keyboard shortcut overlay** — press `?` on the capture overlay.
-- **"Show in Explorer" toast link**.
+- Auto-save — 600 ms debounce, `✔ Settings saved` indicator.
+- Keyboard shortcut overlay — press `?` on the capture overlay.
+- "Show in Explorer" link in the toast notification.
 
 ### Changed
 
-- Toast redesigned (dark slate, coloured border, anchored to primary screen).
-- `Esc` closes shortcut panel first, then cancels overlay.
+- Toast redesigned: dark slate, coloured border, anchored to primary screen.
+- `Esc` closes the shortcut panel first, then cancels the overlay.
 - Settings file renamed to `.memoshot_settings.json`.
 - Version bumped to `1.1.0`.
 

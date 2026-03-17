@@ -193,16 +193,26 @@ class CaptureOverlay(QWidget):
             painter.drawRect(edge_pt.x() - handle_size // 2, edge_pt.y() - handle_size // 2,
                              handle_size, handle_size)
 
-        # Dimension badge above the selection
+        # Dimension badge — above selection normally, flips inside/below when near top edge (issue #10)
         painter.setPen(Qt.white)
         dim_text = f"{cr.width()} × {cr.height()} px"
         fm = painter.fontMetrics()
         tr = fm.boundingRect(dim_text)
+        badge_h = tr.height() + 10
+        MARGIN = 28  # minimum px above top edge needed to show badge above
         tx = cr.center().x() - tr.width() // 2
-        ty = cr.top() - 20
-        painter.fillRect(tx - 10, ty - tr.height() - 5, tr.width() + 20, tr.height() + 10,
-                         QColor(147, 51, 234))
-        painter.drawText(tx, ty, dim_text)
+        if cr.top() >= MARGIN:
+            # Normal: draw above the selection
+            ty = cr.top() - 8
+            painter.fillRect(tx - 10, ty - tr.height() - 5, tr.width() + 20, badge_h,
+                             QColor(147, 51, 234))
+            painter.drawText(tx, ty, dim_text)
+        else:
+            # Not enough room above — draw inside the selection near the top
+            ty = cr.top() + badge_h
+            painter.fillRect(tx - 10, cr.top() + 4, tr.width() + 20, badge_h,
+                             QColor(147, 51, 234))
+            painter.drawText(tx, ty, dim_text)
 
         # Snap hint below the selection
         snap_text = "Press S to snap to screen"
@@ -216,7 +226,7 @@ class CaptureOverlay(QWidget):
 
         # Bottom instruction bar  (? key hint added)
         painter.setPen(Qt.white)
-        inst = "ENTER = Capture  |  ESC = Cancel  |  S = Snap  |  ? = Shortcuts  |  Drag to move / resize"
+        inst = "ENTER = Capture  |  ESC = Cancel  |  S = Snap  |  ↑↓←→ = Nudge  |  ? = Shortcuts  |  Drag to move / resize"
         ir = fm.boundingRect(inst)
         ix = self.width() // 2 - ir.width() // 2
         iy = self.height() - 50
@@ -237,6 +247,7 @@ class CaptureOverlay(QWidget):
             ("Esc",            "Close panel if open, else cancel overlay"),
             ("S",              "Snap selection to the current screen"),
             ("?",              "Toggle this keyboard shortcut panel"),
+            ("Arrow keys",     "Nudge region 1 px (hold Shift = 10 px)"),
             ("Drag (inside)",  "Move the capture region"),
             ("Drag (edge)",    "Resize from any edge"),
             ("Drag (corner)",  "Resize from any corner handle"),
@@ -423,6 +434,21 @@ class CaptureOverlay(QWidget):
         elif key in (Qt.Key_Question, Qt.Key_Slash):
             self._show_shortcuts = not self._show_shortcuts
             logger.debug(f"Shortcut panel toggled: {self._show_shortcuts}")
+            self.update()
+        # Issue #6: arrow-key nudging (1 px, or 10 px with Shift held)
+        elif key in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
+            step = 10 if (event.modifiers() & Qt.ShiftModifier) else 1
+            dx = dy = 0
+            if key == Qt.Key_Left:  dx = -step
+            elif key == Qt.Key_Right: dx = step
+            elif key == Qt.Key_Up:    dy = -step
+            elif key == Qt.Key_Down:  dy = step
+            new_x = max(0, min(self.capture_rect.x() + dx,
+                               self.width() - self.capture_rect.width()))
+            new_y = max(0, min(self.capture_rect.y() + dy,
+                               self.height() - self.capture_rect.height()))
+            self.capture_rect.moveTo(new_x, new_y)
+            logger.debug(f"Nudge ({dx},{dy}) → ({new_x},{new_y})")
             self.update()
 
     # ── Snap to screen ─────────────────────────────────────────────────────────
