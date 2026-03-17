@@ -10,8 +10,10 @@ import subprocess
 import sys
 
 import core.settings as cfg
+from core.settings import CAPTURE_MODES
 from core.hotkey import HotkeyThread
 from ui.overlay import CaptureOverlay
+from ui.window_overlay import WindowCaptureOverlay, grab_desktop_pixmap, get_window_list, _get_memoshot_hwnd
 from utils.logger import get_logger, apply_log_settings, current_log_path
 from version import __version__
 from typing import Optional
@@ -530,6 +532,39 @@ class PortraitScreenshotApp(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
+
+        # ── Capture mode selector ─────────────────────────────────────────────
+        layout.addWidget(self._section_label("Capture mode"))
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(6)
+        self.mode_group = QButtonGroup()
+        _MODE_LABELS = {
+            "region": "📐  Region",
+            "window": "🪟  Window",
+        }
+        self._mode_buttons: dict = {}
+        current_mode = self.settings.get("capture_mode", "region")
+        for mode_key in CAPTURE_MODES:
+            btn = QPushButton(_MODE_LABELS.get(mode_key, mode_key.title()))
+            btn.setCheckable(True)
+            btn.setChecked(mode_key == current_mode)
+            btn.setStyleSheet(self._mode_btn_style(mode_key == current_mode))
+            btn.clicked.connect(lambda checked, k=mode_key: self._on_mode_selected(k))
+            self.mode_group.addButton(btn)
+            self._mode_buttons[mode_key] = btn
+            mode_row.addWidget(btn)
+        mode_row.addStretch()
+        layout.addLayout(mode_row)
+
+        mode_desc = QLabel()
+        mode_desc.setStyleSheet(STYLE_LABEL_MUTED)
+        mode_desc.setWordWrap(True)
+        self._mode_desc_label = mode_desc
+        layout.addWidget(mode_desc)
+
+        layout.addWidget(self._divider())
+
+        # ── Hotkey ────────────────────────────────────────────────────────────
         layout.addWidget(self._section_label("Hotkey"))
         self.hotkey_input = HotkeyCapture(self.settings["hotkey"])
         self.hotkey_input.installEventFilter(self)
@@ -538,8 +573,15 @@ class PortraitScreenshotApp(QMainWindow):
         hint.setStyleSheet(STYLE_LABEL_MUTED)
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        layout.addWidget(self._divider())
-        layout.addWidget(self._section_label("Aspect ratio"))
+
+        # ── Region-only settings (hidden for other modes) ─────────────────────
+        self._region_settings_widget = QWidget()
+        rsl = QVBoxLayout(self._region_settings_widget)
+        rsl.setContentsMargins(0, 0, 0, 0)
+        rsl.setSpacing(12)
+
+        rsl.addWidget(self._divider())
+        rsl.addWidget(self._section_label("Aspect ratio"))
         ratio_row = QHBoxLayout()
         self.ratio_group = QButtonGroup()
         self.ratio_9_16 = QRadioButton("9:16  Portrait")
@@ -554,14 +596,16 @@ class PortraitScreenshotApp(QMainWindow):
         ratio_row.addWidget(self.ratio_9_16)
         ratio_row.addWidget(self.ratio_16_9)
         ratio_row.addStretch()
-        layout.addLayout(ratio_row)
+        rsl.addLayout(ratio_row)
+
         self.lock_ratio_checkbox = QCheckBox("Lock aspect ratio")
         self.lock_ratio_checkbox.setChecked(self.settings.get("lock_ratio", True))
         self.lock_ratio_checkbox.stateChanged.connect(self._on_lock_ratio_changed)
         self.lock_ratio_checkbox.stateChanged.connect(self._schedule_auto_save)
-        layout.addWidget(self.lock_ratio_checkbox)
-        layout.addWidget(self._divider())
-        layout.addWidget(self._section_label("Dimensions"))
+        rsl.addWidget(self.lock_ratio_checkbox)
+
+        rsl.addWidget(self._divider())
+        rsl.addWidget(self._section_label("Dimensions"))
         dim_row = QHBoxLayout()
         dim_row.setSpacing(8)
         for lbl_text, attr, on_change in [
@@ -585,13 +629,60 @@ class PortraitScreenshotApp(QMainWindow):
         px_lbl.setStyleSheet(f"color: {_TEXT_MUTED}; font-size: 12px;")
         dim_row.addWidget(px_lbl)
         dim_row.addStretch()
-        layout.addLayout(dim_row)
+        rsl.addLayout(dim_row)
+
         self.ratio_label = QLabel()
         self.ratio_label.setStyleSheet(STYLE_LABEL_HINT)
-        layout.addWidget(self.ratio_label)
-        self._on_lock_ratio_changed()
+        rsl.addWidget(self.ratio_label)
+
+        layout.addWidget(self._region_settings_widget)
         layout.addStretch()
+
+        # Initialise display for current mode
+        self._on_lock_ratio_changed()
+        self._refresh_mode_ui(current_mode)
         return tab
+
+    @staticmethod
+    def _mode_btn_style(active: bool) -> str:
+        if active:
+            return f"""
+                QPushButton {{
+                    background-color: {_BLUE}; color: white;
+                    border: none; border-radius: 5px;
+                    font-size: 12px; padding: 5px 14px;
+                    font-weight: bold;
+                }}
+            """
+        return f"""
+            QPushButton {{
+                background-color: {_SURFACE}; color: {_TEXT_MUTED};
+                border: 1px solid {_BORDER}; border-radius: 5px;
+                font-size: 12px; padding: 5px 14px;
+            }}
+            QPushButton:hover {{ background-color: {_WIN_BG}; color: {_TEXT_PRIMARY};
+                                 border-color: {_BORDER_MED}; }}
+        """
+
+    def _on_mode_selected(self, mode_key: str) -> None:
+        """Called when the user clicks a mode button in the Capture tab."""
+        self.settings["capture_mode"] = mode_key
+        for k, btn in self._mode_buttons.items():
+            btn.setStyleSheet(self._mode_btn_style(k == mode_key))
+            btn.setChecked(k == mode_key)
+        self._refresh_mode_ui(mode_key)
+        self._refresh_active_profile_bar()
+        self._schedule_auto_save()
+
+    def _refresh_mode_ui(self, mode_key: str) -> None:
+        """Show/hide mode-specific settings and update the description label."""
+        _MODE_DESCRIPTIONS = {
+            "region": "Drag to select any rectangular area on screen.",
+            "window": "Click a window to capture it — the window border is detected automatically.",
+        }
+        self._mode_desc_label.setText(_MODE_DESCRIPTIONS.get(mode_key, ""))
+        # Region-specific settings only shown in region mode
+        self._region_settings_widget.setVisible(mode_key == "region")
 
     # ── Tab: Output ───────────────────────────────────────────────────────────
 
@@ -802,7 +893,11 @@ class PortraitScreenshotApp(QMainWindow):
         if not hasattr(self, "active_profile_bar"):
             return
         if self._active_profile:
-            self.active_profile_lbl.setText(f"Using: {self._active_profile}")
+            mode = self.settings.get("capture_mode", "region")
+            mode_badge = {"region": "📐", "window": "🪟"}.get(mode, mode)
+            self.active_profile_lbl.setText(
+                f"Using: {self._active_profile}  ·  {mode_badge} {mode}"
+            )
             self.active_profile_bar.setVisible(True)
         else:
             self.active_profile_bar.setVisible(False)
@@ -947,6 +1042,12 @@ class PortraitScreenshotApp(QMainWindow):
         self.copy_to_clipboard_checkbox.setChecked(
             self.settings.get("copy_to_clipboard", True)
         )
+        # Restore capture mode — sync buttons in the Capture tab
+        loaded_mode = self.settings.get("capture_mode", "region")
+        for k, btn in self._mode_buttons.items():
+            btn.setChecked(k == loaded_mode)
+            btn.setStyleSheet(self._mode_btn_style(k == loaded_mode))
+        self._refresh_mode_ui(loaded_mode)
         self._update_ratio_label()
         self._refresh_status_card()
         hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
@@ -972,6 +1073,17 @@ class PortraitScreenshotApp(QMainWindow):
     # ── Status card (issue #2: flash; issue #7: first-run hint) ──────────────
 
     def _refresh_status_card(self) -> None:
+        capture_mode = self.settings.get("capture_mode", "region")
+        hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
+
+        if capture_mode == "window":
+            self.status_label.setText("Window capture mode")
+            self.status_sub.setText(
+                f"Press {hotkey} then click a window to capture it"
+            )
+            return
+
+        # Region mode (default)
         mode  = self.settings.get("ratio_mode", "9:16")
         w     = self.settings.get("portrait_width",  607)
         h     = self.settings.get("portrait_height", 1080)
@@ -984,8 +1096,6 @@ class PortraitScreenshotApp(QMainWindow):
             self.status_sub.setText(f"Last region at ({rect['x']}, {rect['y']})")
         else:
             self.status_label.setText(f"{w} × {h} px  ·  {mlbl}")
-            # Issue #7: actionable cold-start hint
-            hotkey = self.settings.get("hotkey", "ctrl+shift+p").upper()
             self.status_sub.setText(
                 f"Press {hotkey} from any app to start your first capture"
             )
@@ -1095,15 +1205,36 @@ class PortraitScreenshotApp(QMainWindow):
         if self.is_exiting:
             return
         try:
-            if self.overlay is None or not self.overlay.isVisible():
-                self.overlay = CaptureOverlay(self.settings)
-                self.overlay.capture_signal.connect(self._on_capture_complete)
-                self.overlay.update_ui_dimensions.connect(
-                    self._on_overlay_dimensions_changed
+            if self.overlay is not None and self.overlay.isVisible():
+                return
+            mode = self.settings.get("capture_mode", "region")
+            if mode == "window":
+                # ── Window mode ───────────────────────────────────────────────
+                # Capture the desktop and enumerate windows NOW, while the
+                # MemoShot window is still visible — this ensures:
+                #   1. The background screenshot does not contain the overlay.
+                #   2. The window list does not contain the overlay HWND.
+                # We hide MemoShot immediately after so it's absent from the
+                # background image we already captured.
+                memoshot_hwnd = _get_memoshot_hwnd()
+                exclude = {memoshot_hwnd} if memoshot_hwnd else set()
+                screen_pixmap, desktop_offset = grab_desktop_pixmap()
+                window_list = get_window_list(exclude_hwnds=exclude)
+                self.hide()
+                self.overlay = WindowCaptureOverlay(
+                    self.settings, screen_pixmap, desktop_offset, window_list
                 )
-                self.overlay.show()
-                self.overlay.activateWindow()
-                self.overlay.raise_()
+            else:
+                # ── Region mode (default) ─────────────────────────────────────
+                self.overlay = CaptureOverlay(self.settings)
+            self.overlay.capture_signal.connect(self._on_capture_complete)
+            self.overlay.update_ui_dimensions.connect(
+                self._on_overlay_dimensions_changed
+            )
+            self.overlay.show()
+            self.overlay.activateWindow()
+            self.overlay.raise_()
+            logger.info(f"Capture started — mode={mode}")
         except Exception as exc:
             logger.error(f"Error starting capture: {exc}")
 
@@ -1321,6 +1452,12 @@ class PortraitScreenshotApp(QMainWindow):
             "9:16" if self.ratio_9_16.isChecked() else "16:9"
         )
         self.settings["copy_to_clipboard"] = self.copy_to_clipboard_checkbox.isChecked()
+        # capture_mode is already kept live in self.settings by _on_mode_selected;
+        # record it here too so _snapshot always captures the full state.
+        for k, btn in self._mode_buttons.items():
+            if btn.isChecked():
+                self.settings["capture_mode"] = k
+                break
 
     # ── App lifecycle (issue #3: no exit confirmation) ────────────────────────
 

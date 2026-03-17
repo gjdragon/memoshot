@@ -15,6 +15,13 @@ logger = get_logger(__name__)
 
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".memoshot_settings.json")
 
+# All supported capture modes.  Adding a new mode here is the only change
+# needed in this file — the UI and capture layer read this list.
+CAPTURE_MODES = [
+    "region",   # drag-to-select a region (original behaviour)
+    "window",   # click a window to capture it
+]
+
 DEFAULT_SETTINGS: dict = {
     "hotkey": "ctrl+shift+p",
     "save_location": os.path.join(os.path.expanduser("~"), "Screenshots"),
@@ -26,13 +33,17 @@ DEFAULT_SETTINGS: dict = {
     "copy_to_clipboard": True,
     "file_prefix": "",
     "profiles": {},
+    # ── Capture mode ───────────────────────────────────────────────────────────
+    "capture_mode": "region",    # one of CAPTURE_MODES
     # ── Logging ────────────────────────────────────────────────────────────────
     "logging_enabled": True,
     "log_folder": "",            # empty → use default (src/Logs/)
     "log_level": "INFO",         # "INFO" or "DEBUG"
 }
 
-# Keys that are stored inside a profile snapshot
+# Keys that are stored inside a profile snapshot.
+# capture_mode is intentionally included so a profile fully describes how
+# to capture, not just where to save.
 PROFILE_KEYS = [
     "hotkey",
     "save_location",
@@ -42,6 +53,7 @@ PROFILE_KEYS = [
     "ratio_mode",
     "lock_ratio",
     "copy_to_clipboard",
+    "capture_mode",
     "last_capture_rect_9:16",
     "last_capture_rect_16:9",
 ]
@@ -57,6 +69,9 @@ def load() -> dict:
                 settings.update(loaded)
     except Exception as exc:
         logger.warning(f"Error loading settings: {exc}")
+    # Guarantee capture_mode is always a recognised value (backwards compat)
+    if settings.get("capture_mode") not in CAPTURE_MODES:
+        settings["capture_mode"] = "region"
     return settings
 
 
@@ -87,12 +102,20 @@ def load_profile(settings: dict, name: str) -> bool:
     """
     Apply a stored profile onto *settings* in-place.
     Returns True on success, False if the profile doesn't exist.
+    Old profiles that pre-date capture_mode default to 'region'.
     """
     profiles = settings.get("profiles", {})
     if name not in profiles:
         logger.warning(f"Profile not found: {name}")
         return False
-    settings.update(profiles[name])
+    data = profiles[name]
+    # Backwards compat: profiles saved before capture_mode existed
+    if "capture_mode" not in data:
+        data["capture_mode"] = "region"
+    settings.update(data)
+    # Validate the loaded mode
+    if settings.get("capture_mode") not in CAPTURE_MODES:
+        settings["capture_mode"] = "region"
     save(settings)
     logger.info(f"Profile loaded: {name}")
     return True
