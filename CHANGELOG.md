@@ -6,6 +6,8 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.8.0] — UX improvements & polish
+
 ## [1.7.0] — UX improvements & polish
 
 ### Added

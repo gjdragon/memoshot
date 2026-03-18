@@ -632,7 +632,9 @@ class PortraitScreenshotApp(QMainWindow):
         layout.setSpacing(12)
 
         # ── Capture mode selector ─────────────────────────────────────────────
+        layout.setSpacing(0)   # manual spacing throughout for full control
         layout.addWidget(self._section_label("Capture mode"))
+        layout.addSpacing(8)
         mode_row = QHBoxLayout()
         mode_row.setSpacing(6)
         self.mode_group = QButtonGroup()
@@ -653,6 +655,7 @@ class PortraitScreenshotApp(QMainWindow):
             mode_row.addWidget(btn)
         mode_row.addStretch()
         layout.addLayout(mode_row)
+        layout.addSpacing(6)
 
         mode_desc = QLabel()
         mode_desc.setStyleSheet(STYLE_LABEL_MUTED)
@@ -660,26 +663,35 @@ class PortraitScreenshotApp(QMainWindow):
         self._mode_desc_label = mode_desc
         layout.addWidget(mode_desc)
 
+        layout.addSpacing(10)
         layout.addWidget(self._divider())
+        layout.addSpacing(10)
 
         # ── Hotkey ────────────────────────────────────────────────────────────
         layout.addWidget(self._section_label("Hotkey"))
+        layout.addSpacing(8)
         self.hotkey_input = HotkeyCapture(self.settings["hotkey"])
         self.hotkey_input.installEventFilter(self)
         layout.addWidget(self.hotkey_input)
+        layout.addSpacing(4)
         hint = QLabel("Click to record — press any combination (e.g. F12, Ctrl+Shift+S)")
         hint.setStyleSheet(STYLE_LABEL_MUTED)
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
         # ── Region-only settings (hidden for other modes) ─────────────────────
+        # No margins on the container itself — the outer layout's spacing (12px)
+        # provides the gap above. Internal spacing matches the outer layout so
+        # sections feel consistent whether region settings are visible or not.
         self._region_settings_widget = QWidget()
         rsl = QVBoxLayout(self._region_settings_widget)
         rsl.setContentsMargins(0, 0, 0, 0)
-        rsl.setSpacing(12)
+        rsl.setSpacing(0)   # manual spacing via addSpacing() for full control
 
         rsl.addWidget(self._divider())
+        rsl.addSpacing(10)
         rsl.addWidget(self._section_label("Aspect ratio"))
+        rsl.addSpacing(8)
         ratio_row = QHBoxLayout()
         self.ratio_group = QButtonGroup()
         self.ratio_9_16 = QRadioButton("9:16  Portrait")
@@ -695,6 +707,7 @@ class PortraitScreenshotApp(QMainWindow):
         ratio_row.addWidget(self.ratio_16_9)
         ratio_row.addStretch()
         rsl.addLayout(ratio_row)
+        rsl.addSpacing(6)
 
         self.lock_ratio_checkbox = QCheckBox("Lock aspect ratio")
         self.lock_ratio_checkbox.setChecked(self.settings.get("lock_ratio", True))
@@ -702,8 +715,11 @@ class PortraitScreenshotApp(QMainWindow):
         self.lock_ratio_checkbox.stateChanged.connect(self._schedule_auto_save)
         rsl.addWidget(self.lock_ratio_checkbox)
 
+        rsl.addSpacing(10)
         rsl.addWidget(self._divider())
+        rsl.addSpacing(10)
         rsl.addWidget(self._section_label("Dimensions"))
+        rsl.addSpacing(8)
         dim_row = QHBoxLayout()
         dim_row.setSpacing(8)
         for lbl_text, attr, on_change in [
@@ -728,6 +744,7 @@ class PortraitScreenshotApp(QMainWindow):
         dim_row.addWidget(px_lbl)
         dim_row.addStretch()
         rsl.addLayout(dim_row)
+        rsl.addSpacing(4)
 
         self.ratio_label = QLabel()
         self.ratio_label.setStyleSheet(STYLE_LABEL_HINT)
