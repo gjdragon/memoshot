@@ -77,18 +77,24 @@ def _get_windows_win32(exclude_hwnds: Optional[set] = None) -> List[Tuple[str, Q
         return []
 
 
-def _get_memoshot_hwnd() -> Optional[int]:
-    """Return the HWND of the currently active Qt top-level, or None."""
+def _get_memoshot_hwnds() -> set:
+    """
+    Return a set of HWNDs for ALL visible Qt top-level widgets (main window,
+    any open toasts, dialogs, etc.) so every MemoShot surface is excluded from
+    the captured window list and from the desktop screenshot.
+    """
+    hwnds: set = set()
     try:
-        import ctypes
         for w in QApplication.topLevelWidgets():
-            if w.isVisible():
-                hwnd = int(w.winId())
-                if hwnd:
-                    return hwnd
+            try:
+                wid = w.winId()
+                if wid:
+                    hwnds.add(int(wid))
+            except Exception:
+                pass
     except Exception:
         pass
-    return None
+    return hwnds
 
 
 def _get_windows_xlib() -> List[Tuple[str, QRect]]:
@@ -197,12 +203,14 @@ class WindowCaptureOverlay(QWidget):
         screen_pixmap: QPixmap,
         desktop_offset: QPoint,
         window_list: List[Tuple[str, QRect]],
+        own_hwnds: Optional[set] = None,
     ) -> None:
         super().__init__()
         self.settings       = settings
         self.screen_pixmap  = screen_pixmap
         self.full_desktop_offset = desktop_offset
         self._windows       = window_list
+        self._own_hwnds     = own_hwnds or set()   # Bug 4: all MemoShot HWNDs
         self._hovered_rect: Optional[QRect]  = None   # global coords
         self._hovered_title: str = ""
 
@@ -242,11 +250,107 @@ class WindowCaptureOverlay(QWidget):
         )
 
     def _find_window_at(self, global_pos: QPoint) -> Tuple[Optional[QRect], str]:
-        """Topmost window containing global_pos (reversed = topmost first)."""
+        """
+        Return the topmost window at *global_pos*.
+
+        On Windows we use WindowFromPoint → GetAncestor(GA_ROOT) to get the
+        real top-level owner, then look it up in our pre-built window list for
+        the title and rect.  This is exact — no geometry math, no z-order
+        guessing.
+
+        On other platforms we fall back to iterating the list in reverse
+        (last enumerated = topmost).
+        """
+        if sys.platform == "win32":
+            return self._find_window_at_win32(global_pos)
+        # Fallback: geometry search in reverse z-order
         for title, rect in reversed(self._windows):
             if rect.contains(global_pos):
                 return rect, title
         return None, ""
+
+    def _find_window_at_win32(self, global_pos: QPoint) -> Tuple[Optional[QRect], str]:
+        """
+        Find the topmost *real* window at global_pos, skipping the overlay.
+
+        Strategy: temporarily set WS_EX_TRANSPARENT | WS_EX_LAYERED on the
+        overlay so WindowFromPoint sees through it — without ever hiding the
+        window.  This avoids all flicker and never releases the mouse grab
+        (the old SWP_HIDEWINDOW approach caused both problems).
+        """
+        try:
+            import ctypes
+            import ctypes.wintypes as wt
+
+            user32  = ctypes.windll.user32
+            GA_ROOT = 2
+            GWL_EXSTYLE       = -20
+            WS_EX_LAYERED     = 0x00080000
+            WS_EX_TRANSPARENT = 0x00000020
+
+            own_hwnd = int(self.winId()) if self.winId() else 0
+
+            # Make overlay mouse-transparent for the duration of the hit-test
+            old_exstyle = 0
+            if own_hwnd:
+                old_exstyle = user32.GetWindowLongW(own_hwnd, GWL_EXSTYLE)
+                user32.SetWindowLongW(
+                    own_hwnd, GWL_EXSTYLE,
+                    old_exstyle | WS_EX_LAYERED | WS_EX_TRANSPARENT,
+                )
+
+            pt   = wt.POINT(global_pos.x(), global_pos.y())
+            hwnd = user32.WindowFromPoint(pt)
+
+            # Restore the original extended style immediately
+            if own_hwnd:
+                user32.SetWindowLongW(own_hwnd, GWL_EXSTYLE, old_exstyle)
+
+            if not hwnd or hwnd == own_hwnd:
+                return None, ""
+
+            # Walk up to the root top-level owner (child windows, Chrome tabs…)
+            root = user32.GetAncestor(hwnd, GA_ROOT)
+            if root:
+                hwnd = root
+
+            # Skip shell / taskbar windows
+            cls_buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, cls_buf, 256)
+            if cls_buf.value in ("Shell_TrayWnd", "Progman", "WorkerW"):
+                return None, ""
+
+            # Skip minimised and invisible
+            if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+                return None, ""
+
+            # Skip every MemoShot surface (main window, overlay, toasts…)
+            if hwnd in self._own_hwnds:
+                return None, ""
+
+            # Fresh rect — not the (possibly stale) pre-enumerated list
+            rect = wt.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            w = rect.right  - rect.left
+            h = rect.bottom - rect.top
+            if w <= 0 or h <= 0:
+                return None, ""
+
+            length    = user32.GetWindowTextLengthW(hwnd)
+            title_buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, title_buf, length + 1)
+            title = title_buf.value.strip() or "(no title)"
+
+            q_rect = QRect(rect.left, rect.top, w, h)
+            logger.debug(f"WindowFromPoint → hwnd={hwnd}  '{title}'  {w}×{h}")
+            return q_rect, title
+
+        except Exception as exc:
+            logger.warning(f"WindowFromPoint failed: {exc}")
+            for title, rect in reversed(self._windows):
+                if rect.contains(global_pos):
+                    return rect, title
+            return None, ""
 
     # ── Paint ──────────────────────────────────────────────────────────────────
 
@@ -303,6 +407,11 @@ class WindowCaptureOverlay(QWidget):
 
     def mouseMoveEvent(self, event) -> None:
         global_pos = event.pos() + self.full_desktop_offset
+        # Skip re-query if the cursor hasn't left the currently highlighted
+        # window — avoids redundant WindowFromPoint calls on every pixel move.
+        if (self._hovered_rect is not None
+                and self._hovered_rect.contains(global_pos)):
+            return
         rect, title = self._find_window_at(global_pos)
         if rect != self._hovered_rect or title != self._hovered_title:
             self._hovered_rect  = rect
@@ -359,14 +468,31 @@ class WindowCaptureOverlay(QWidget):
     # ── Show / Close ──────────────────────────────────────────────────────────
 
     def showEvent(self, event) -> None:
-        """Defer grabs one event-loop tick — Qt ignores grabs on not-yet-painted windows."""
+        """Defer grabs until the window is fully composited by DWM.
+        QTimer(0) is too short on Windows — 100 ms gives DWM enough time
+        to composite the overlay before we grab the mouse/keyboard, which
+        prevents the 'overlay appears frozen / no highlighting' failure."""
         super().showEvent(event)
-        QTimer.singleShot(0, self._do_grab)
+        delay = 100 if sys.platform == "win32" else 0
+        QTimer.singleShot(delay, self._do_grab)
 
     def _do_grab(self) -> None:
+        kb_ok    = self.grabKeyboard()
+        mouse_ok = self.grabMouse()
+        if not kb_ok or not mouse_ok:
+            logger.warning(
+                f"WindowCaptureOverlay — grab partially failed "
+                f"(keyboard={kb_ok}, mouse={mouse_ok}); retrying in 50 ms"
+            )
+            QTimer.singleShot(50, self._do_grab_retry)
+        else:
+            logger.debug("WindowCaptureOverlay — keyboard+mouse grabbed OK")
+
+    def _do_grab_retry(self) -> None:
+        """One extra attempt after the initial grab delay failed."""
         self.grabKeyboard()
         self.grabMouse()
-        logger.debug("WindowCaptureOverlay — keyboard+mouse grabbed")
+        logger.debug("WindowCaptureOverlay — grab retry completed")
 
     def closeEvent(self, event) -> None:
         try:
