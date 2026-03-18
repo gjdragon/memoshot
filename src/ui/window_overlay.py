@@ -507,6 +507,17 @@ class WindowCaptureOverlay(QWidget):
         self.grabKeyboard()
         self.grabMouse()
         logger.debug("WindowCaptureOverlay — keyboard+mouse grabbed")
+        # Perform an immediate hit-test at the current cursor position so the
+        # highlight appears instantly without waiting for the user to move the mouse.
+        self._highlight_at_cursor()
+
+    def _highlight_at_cursor(self) -> None:
+        """Update the hover highlight for wherever the cursor currently is."""
+        global_pos = QCursor.pos()
+        rect, title = self._find_window_at(global_pos)
+        self._hovered_rect  = rect
+        self._hovered_title = title
+        self.update()
 
     def closeEvent(self, event) -> None:
         try:
