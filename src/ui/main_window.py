@@ -13,7 +13,7 @@ import core.settings as cfg
 from core.settings import CAPTURE_MODES
 from core.hotkey import HotkeyThread
 from ui.overlay import CaptureOverlay
-from ui.window_overlay import WindowCaptureOverlay, grab_desktop_pixmap, get_window_list, _get_memoshot_hwnds
+from ui.window_overlay import WindowCaptureOverlay, grab_desktop_pixmap, get_window_list, _get_memoshot_hwnd
 from utils.logger import get_logger, apply_log_settings, current_log_path
 from version import __version__
 from typing import Optional
@@ -1210,43 +1210,23 @@ class PortraitScreenshotApp(QMainWindow):
             mode = self.settings.get("capture_mode", "region")
             if mode == "window":
                 # ── Window mode ───────────────────────────────────────────────
-                # Bug 1 fix: hide MemoShot FIRST, wait one compositor frame,
-                # THEN grab the desktop screenshot — so the main window is
-                # absent from the background image.
+                # Capture the desktop and enumerate windows NOW, while the
+                # MemoShot window is still visible — this ensures:
+                #   1. The background screenshot does not contain the overlay.
+                #   2. The window list does not contain the overlay HWND.
+                # We hide MemoShot immediately after so it's absent from the
+                # background image we already captured.
+                memoshot_hwnd = _get_memoshot_hwnd()
+                exclude = {memoshot_hwnd} if memoshot_hwnd else set()
+                screen_pixmap, desktop_offset = grab_desktop_pixmap()
+                window_list = get_window_list(exclude_hwnds=exclude)
                 self.hide()
-                QTimer.singleShot(80, self._start_window_capture)
+                self.overlay = WindowCaptureOverlay(
+                    self.settings, screen_pixmap, desktop_offset, window_list
+                )
             else:
                 # ── Region mode (default) ─────────────────────────────────────
                 self.overlay = CaptureOverlay(self.settings)
-                self.overlay.capture_signal.connect(self._on_capture_complete)
-                self.overlay.update_ui_dimensions.connect(
-                    self._on_overlay_dimensions_changed
-                )
-                self.overlay.show()
-                self.overlay.activateWindow()
-                self.overlay.raise_()
-                logger.info(f"Capture started — mode={mode}")
-        except Exception as exc:
-            logger.error(f"Error starting capture: {exc}")
-
-    def _start_window_capture(self) -> None:
-        """
-        Called 80 ms after self.hide() so the compositor has had time to
-        remove the MemoShot window from the screen before we screenshot.
-        Bug 4 fix: collect ALL MemoShot HWNDs (main window + any toasts/
-        dialogs) so none of them appear in the window list or the screenshot.
-        """
-        try:
-            # Bug 4 fix: gather every MemoShot HWND, not just the first visible one
-            own_hwnds = _get_memoshot_hwnds()
-
-            screen_pixmap, desktop_offset = grab_desktop_pixmap()
-            window_list = get_window_list(exclude_hwnds=own_hwnds)
-
-            self.overlay = WindowCaptureOverlay(
-                self.settings, screen_pixmap, desktop_offset,
-                window_list, own_hwnds=own_hwnds,
-            )
             self.overlay.capture_signal.connect(self._on_capture_complete)
             self.overlay.update_ui_dimensions.connect(
                 self._on_overlay_dimensions_changed
@@ -1254,25 +1234,21 @@ class PortraitScreenshotApp(QMainWindow):
             self.overlay.show()
             self.overlay.activateWindow()
             self.overlay.raise_()
-            logger.info("Capture started — mode=window")
+            logger.info(f"Capture started — mode={mode}")
         except Exception as exc:
-            logger.error(f"Error starting window capture: {exc}")
-            # Make sure the main window comes back even if setup fails
-            self.show()
+            logger.error(f"Error starting capture: {exc}")
 
     def _on_capture_complete(self, rect) -> None:
         self._refresh_status_card()
         # Issue #2: flash the status card to confirm the capture
         self._flash_status_card()
         cfg.save(self.settings)
-        # Bug 6 fix: always restore the main window after window-mode capture.
-        # In region mode the window was never hidden, so show() is harmless.
         if self._return_to_settings:
             self._return_to_settings = False
             self._refresh_settings_status_lbl()
             self.stack.setCurrentIndex(1)
-        self.show()
-        self.activateWindow()
+            self.show()
+            self.activateWindow()
 
     def _test_capture_from_settings(self) -> None:
         self._snapshot_ui_to_settings()

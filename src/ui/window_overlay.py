@@ -45,6 +45,28 @@ def _get_windows_win32(exclude_hwnds: Optional[set] = None) -> List[Tuple[str, Q
         results: List[Tuple[str, QRect]] = []
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
 
+        DWMWA_EXTENDED_FRAME_BOUNDS = 9
+        try:
+            dwmapi = ctypes.windll.dwmapi
+        except Exception:
+            dwmapi = None
+
+        def _get_visible_rect(h) -> wt.RECT:
+            """Return the visible frame rect, falling back to GetWindowRect."""
+            r = wt.RECT()
+            if dwmapi:
+                try:
+                    hr = dwmapi.DwmGetWindowAttribute(
+                        h, DWMWA_EXTENDED_FRAME_BOUNDS,
+                        ctypes.byref(r), ctypes.sizeof(r),
+                    )
+                    if hr == 0:   # S_OK
+                        return r
+                except Exception:
+                    pass
+            user32.GetWindowRect(h, ctypes.byref(r))
+            return r
+
         def _cb(hwnd, _lparam):
             if hwnd in exclude_hwnds:
                 return True
@@ -52,15 +74,14 @@ def _get_windows_win32(exclude_hwnds: Optional[set] = None) -> List[Tuple[str, Q
                 return True
             if user32.IsIconic(hwnd):          # minimised
                 return True
-            rect = wt.RECT()
-            user32.GetWindowRect(hwnd, ctypes.byref(rect))
-            w = rect.right  - rect.left
-            h = rect.bottom - rect.top
-            if w <= 0 or h <= 0:
-                return True
             buf = ctypes.create_unicode_buffer(256)
             user32.GetClassNameW(hwnd, buf, 256)
             if buf.value in ("Shell_TrayWnd", "Progman", "WorkerW"):
+                return True
+            rect = _get_visible_rect(hwnd)
+            w = rect.right  - rect.left
+            h = rect.bottom - rect.top
+            if w <= 0 or h <= 0:
                 return True
             length = user32.GetWindowTextLengthW(hwnd)
             title_buf = ctypes.create_unicode_buffer(length + 1)
@@ -77,24 +98,18 @@ def _get_windows_win32(exclude_hwnds: Optional[set] = None) -> List[Tuple[str, Q
         return []
 
 
-def _get_memoshot_hwnds() -> set:
-    """
-    Return a set of HWNDs for ALL visible Qt top-level widgets (main window,
-    any open toasts, dialogs, etc.) so every MemoShot surface is excluded from
-    the captured window list and from the desktop screenshot.
-    """
-    hwnds: set = set()
+def _get_memoshot_hwnd() -> Optional[int]:
+    """Return the HWND of the currently active Qt top-level, or None."""
     try:
+        import ctypes
         for w in QApplication.topLevelWidgets():
-            try:
-                wid = w.winId()
-                if wid:
-                    hwnds.add(int(wid))
-            except Exception:
-                pass
+            if w.isVisible():
+                hwnd = int(w.winId())
+                if hwnd:
+                    return hwnd
     except Exception:
         pass
-    return hwnds
+    return None
 
 
 def _get_windows_xlib() -> List[Tuple[str, QRect]]:
@@ -203,14 +218,12 @@ class WindowCaptureOverlay(QWidget):
         screen_pixmap: QPixmap,
         desktop_offset: QPoint,
         window_list: List[Tuple[str, QRect]],
-        own_hwnds: Optional[set] = None,
     ) -> None:
         super().__init__()
         self.settings       = settings
         self.screen_pixmap  = screen_pixmap
         self.full_desktop_offset = desktop_offset
         self._windows       = window_list
-        self._own_hwnds     = own_hwnds or set()   # Bug 4: all MemoShot HWNDs
         self._hovered_rect: Optional[QRect]  = None   # global coords
         self._hovered_title: str = ""
 
@@ -273,48 +286,52 @@ class WindowCaptureOverlay(QWidget):
         """
         Find the topmost *real* window at global_pos, skipping the overlay.
 
-        Strategy: temporarily set WS_EX_TRANSPARENT | WS_EX_LAYERED on the
-        overlay so WindowFromPoint sees through it — without ever hiding the
-        window.  This avoids all flicker and never releases the mouse grab
-        (the old SWP_HIDEWINDOW approach caused both problems).
+        Strategy: hide the overlay, call WindowFromPoint, restore visibility.
+        This is the only reliable way to see through a full-screen transparent
+        overlay — GetWindow(GW_HWNDNEXT) and EnumWindowsFromPoint both still
+        return the overlay when it covers the whole desktop.
         """
         try:
             import ctypes
             import ctypes.wintypes as wt
 
-            user32  = ctypes.windll.user32
+            user32 = ctypes.windll.user32
             GA_ROOT = 2
-            GWL_EXSTYLE       = -20
-            WS_EX_LAYERED     = 0x00080000
-            WS_EX_TRANSPARENT = 0x00000020
 
+            # Temporarily hide the overlay so WindowFromPoint sees through it.
+            # We use SetWindowPos(SWP_HIDEWINDOW) + SWP_SHOWWINDOW rather than
+            # ShowWindow because SetWindowPos defers repainting — the hide and
+            # re-show are processed in the same message pump pass with no
+            # WM_PAINT between them, so the overlay never visibly disappears.
             own_hwnd = int(self.winId()) if self.winId() else 0
-
-            # Make overlay mouse-transparent for the duration of the hit-test
-            old_exstyle = 0
+            SWP_NOMOVE    = 0x0002
+            SWP_NOSIZE    = 0x0001
+            SWP_NOZORDER  = 0x0004
+            SWP_NOACTIVATE = 0x0010
+            SWP_HIDEWINDOW = 0x0080
+            SWP_SHOWWINDOW = 0x0040
+            NO_MOVE_SIZE = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
             if own_hwnd:
-                old_exstyle = user32.GetWindowLongW(own_hwnd, GWL_EXSTYLE)
-                user32.SetWindowLongW(
-                    own_hwnd, GWL_EXSTYLE,
-                    old_exstyle | WS_EX_LAYERED | WS_EX_TRANSPARENT,
-                )
+                user32.SetWindowPos(own_hwnd, 0, 0, 0, 0, 0,
+                                    NO_MOVE_SIZE | SWP_HIDEWINDOW)
 
-            pt   = wt.POINT(global_pos.x(), global_pos.y())
+            pt = wt.POINT(global_pos.x(), global_pos.y())
             hwnd = user32.WindowFromPoint(pt)
 
-            # Restore the original extended style immediately
+            # Restore overlay immediately — no repaint has occurred
             if own_hwnd:
-                user32.SetWindowLongW(own_hwnd, GWL_EXSTYLE, old_exstyle)
+                user32.SetWindowPos(own_hwnd, 0, 0, 0, 0, 0,
+                                    NO_MOVE_SIZE | SWP_SHOWWINDOW)
 
             if not hwnd or hwnd == own_hwnd:
                 return None, ""
 
-            # Walk up to the root top-level owner (child windows, Chrome tabs…)
+            # Walk up to the root top-level owner (child windows, Chrome tabs, etc.)
             root = user32.GetAncestor(hwnd, GA_ROOT)
             if root:
                 hwnd = root
 
-            # Skip shell / taskbar windows
+            # Skip shell/taskbar windows
             cls_buf = ctypes.create_unicode_buffer(256)
             user32.GetClassNameW(hwnd, cls_buf, 256)
             if cls_buf.value in ("Shell_TrayWnd", "Progman", "WorkerW"):
@@ -324,19 +341,33 @@ class WindowCaptureOverlay(QWidget):
             if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
                 return None, ""
 
-            # Skip every MemoShot surface (main window, overlay, toasts…)
-            if hwnd in self._own_hwnds:
-                return None, ""
-
-            # Fresh rect — not the (possibly stale) pre-enumerated list
+            # Use DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS) to get
+            # the *visible* window rect, which excludes the invisible extended
+            # resize border that GetWindowRect includes on Windows 10/11.
+            # Fall back to GetWindowRect if DWM is unavailable.
+            DWMWA_EXTENDED_FRAME_BOUNDS = 9
             rect = wt.RECT()
-            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            try:
+                dwmapi = ctypes.windll.dwmapi
+                hr = dwmapi.DwmGetWindowAttribute(
+                    hwnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    ctypes.byref(rect),
+                    ctypes.sizeof(rect),
+                )
+                if hr != 0:   # S_OK = 0; anything else → fall back
+                    raise OSError(f"DwmGetWindowAttribute returned 0x{hr:08x}")
+                logger.debug("Used DWMWA_EXTENDED_FRAME_BOUNDS for rect")
+            except Exception as dwm_exc:
+                logger.debug(f"DWM frame bounds unavailable ({dwm_exc}), using GetWindowRect")
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+
             w = rect.right  - rect.left
             h = rect.bottom - rect.top
             if w <= 0 or h <= 0:
                 return None, ""
 
-            length    = user32.GetWindowTextLengthW(hwnd)
+            length = user32.GetWindowTextLengthW(hwnd)
             title_buf = ctypes.create_unicode_buffer(length + 1)
             user32.GetWindowTextW(hwnd, title_buf, length + 1)
             title = title_buf.value.strip() or "(no title)"
@@ -468,31 +499,14 @@ class WindowCaptureOverlay(QWidget):
     # ── Show / Close ──────────────────────────────────────────────────────────
 
     def showEvent(self, event) -> None:
-        """Defer grabs until the window is fully composited by DWM.
-        QTimer(0) is too short on Windows — 100 ms gives DWM enough time
-        to composite the overlay before we grab the mouse/keyboard, which
-        prevents the 'overlay appears frozen / no highlighting' failure."""
+        """Defer grabs one event-loop tick — Qt ignores grabs on not-yet-painted windows."""
         super().showEvent(event)
-        delay = 100 if sys.platform == "win32" else 0
-        QTimer.singleShot(delay, self._do_grab)
+        QTimer.singleShot(0, self._do_grab)
 
     def _do_grab(self) -> None:
-        kb_ok    = self.grabKeyboard()
-        mouse_ok = self.grabMouse()
-        if not kb_ok or not mouse_ok:
-            logger.warning(
-                f"WindowCaptureOverlay — grab partially failed "
-                f"(keyboard={kb_ok}, mouse={mouse_ok}); retrying in 50 ms"
-            )
-            QTimer.singleShot(50, self._do_grab_retry)
-        else:
-            logger.debug("WindowCaptureOverlay — keyboard+mouse grabbed OK")
-
-    def _do_grab_retry(self) -> None:
-        """One extra attempt after the initial grab delay failed."""
         self.grabKeyboard()
         self.grabMouse()
-        logger.debug("WindowCaptureOverlay — grab retry completed")
+        logger.debug("WindowCaptureOverlay — keyboard+mouse grabbed")
 
     def closeEvent(self, event) -> None:
         try:
