@@ -174,65 +174,79 @@ class CaptureOverlay(QWidget):
             if cr.right() < self.width():
                 painter.fillRect(cr.right(), cr.top(), self.width() - cr.right(), cr.height(), dark)
 
-        pen = QPen(QColor(147, 51, 234), 4)
+        # Selection rectangle — 2px ink-blue border, clean and precise
+        _SEL   = QColor(26, 86, 219)    # #1a56db — ink blue
+        _SEL_F = QColor(26, 86, 219, 16) # subtle fill
+        painter.fillRect(self.capture_rect, _SEL_F)
+        pen = QPen(_SEL, 2)
         painter.setPen(pen)
         painter.drawRect(self.capture_rect)
 
-        handle_size = 10
-        painter.setBrush(QColor(147, 51, 234))
+        # Corner handles — filled white square with blue border
+        handle_size = 5
         cr = self.capture_rect
+        painter.setBrush(QColor(255, 255, 255))
+        painter.setPen(QPen(_SEL, 1.5))
         for corner in [cr.topLeft(), cr.topRight(), cr.bottomLeft(), cr.bottomRight()]:
-            painter.drawEllipse(corner.x() - handle_size, corner.y() - handle_size,
-                                handle_size * 2, handle_size * 2)
+            painter.drawRect(corner.x() - handle_size, corner.y() - handle_size,
+                             handle_size * 2, handle_size * 2)
+        # Edge midpoint handles
+        handle_size = 4
         for edge_pt in [
             QPoint(cr.center().x(), cr.top()),
             QPoint(cr.center().x(), cr.bottom()),
             QPoint(cr.left(), cr.center().y()),
             QPoint(cr.right(), cr.center().y()),
         ]:
-            painter.drawRect(edge_pt.x() - handle_size // 2, edge_pt.y() - handle_size // 2,
-                             handle_size, handle_size)
+            painter.drawRect(edge_pt.x() - handle_size, edge_pt.y() - handle_size,
+                             handle_size * 2, handle_size * 2)
 
-        # Dimension badge — above selection normally, flips inside/below when near top edge (issue #10)
-        painter.setPen(Qt.white)
+        # Dimension badge — dark pill above (or inside) the selection
+        _BADGE_BG  = QColor(15, 23, 42, 225)
+        _BADGE_ACC = QColor(26, 86, 219)
+        painter.setPen(QColor(203, 213, 225))
         dim_text = f"{cr.width()} × {cr.height()} px"
         fm = painter.fontMetrics()
         tr = fm.boundingRect(dim_text)
+        badge_w = tr.width() + 24
         badge_h = tr.height() + 10
-        MARGIN = 28  # minimum px above top edge needed to show badge above
-        tx = cr.center().x() - tr.width() // 2
+        MARGIN = 36
+        bx = cr.center().x() - badge_w // 2
         if cr.top() >= MARGIN:
-            # Normal: draw above the selection
-            ty = cr.top() - 8
-            painter.fillRect(tx - 10, ty - tr.height() - 5, tr.width() + 20, badge_h,
-                             QColor(147, 51, 234))
-            painter.drawText(tx, ty, dim_text)
+            by = cr.top() - badge_h - 4
+            painter.fillRect(bx, by, badge_w, badge_h, _BADGE_BG)
+            painter.fillRect(bx, by, badge_w, 2, _BADGE_ACC)
+            painter.drawText(bx + 12, by + badge_h - 5, dim_text)
         else:
-            # Not enough room above — draw inside the selection near the top
-            ty = cr.top() + badge_h
-            painter.fillRect(tx - 10, cr.top() + 4, tr.width() + 20, badge_h,
-                             QColor(147, 51, 234))
-            painter.drawText(tx, ty, dim_text)
+            by = cr.top() + 4
+            painter.fillRect(bx, by, badge_w, badge_h, _BADGE_BG)
+            painter.fillRect(bx, by, badge_w, 2, _BADGE_ACC)
+            painter.drawText(bx + 12, by + badge_h - 5, dim_text)
 
-        # Snap hint below the selection
-        snap_text = "Press S to snap to screen"
+        # Snap hint below the selection — small muted pill
+        snap_text = "S — snap to screen"
         sr = fm.boundingRect(snap_text)
-        sx = cr.center().x() - sr.width() // 2
-        sy = cr.bottom() + sr.height() + 15
-        painter.fillRect(sx - 10, sy - sr.height() - 5, sr.width() + 20, sr.height() + 10,
-                         QColor(30, 41, 59, 200))
-        painter.setPen(QColor(167, 139, 250))
-        painter.drawText(sx, sy, snap_text)
+        sw = sr.width() + 20
+        sh = sr.height() + 8
+        sx = cr.center().x() - sw // 2
+        sy = cr.bottom() + 8
+        painter.fillRect(sx, sy, sw, sh, QColor(15, 23, 42, 180))
+        painter.setPen(QColor(148, 163, 184))
+        painter.drawText(sx + 10, sy + sh - 5, snap_text)
 
-        # Bottom instruction bar  (? key hint added)
-        painter.setPen(Qt.white)
-        inst = "ENTER = Capture  |  ESC = Cancel  |  S = Snap  |  ↑↓←→ = Nudge  |  ? = Shortcuts  |  Drag to move / resize"
+        # Bottom instruction bar — dark pill with blue top accent
+        _BAR_BG  = QColor(15, 23, 42, 225)
+        _BAR_ACC = QColor(26, 86, 219)
+        painter.setPen(QColor(203, 213, 225))
+        inst = "Enter — capture  ·  Esc — cancel  ·  S — snap  ·  ↑↓←→ — nudge  ·  ? — shortcuts"
         ir = fm.boundingRect(inst)
-        ix = self.width() // 2 - ir.width() // 2
-        iy = self.height() - 50
-        painter.fillRect(ix - 20, iy - ir.height() - 10, ir.width() + 40, ir.height() + 20,
-                         QColor(30, 41, 59, 230))
-        painter.drawText(ix, iy, inst)
+        iw = ir.width() + 48
+        ih = ir.height() + 16
+        ix = self.width() // 2 - iw // 2
+        iy = self.height() - 44
+        painter.fillRect(ix, iy, iw, ih, _BAR_BG)
+        painter.fillRect(ix, iy, iw, 2, _BAR_ACC)
+        painter.drawText(ix + 24, iy + ih - 6, inst)
 
         # Shortcut cheat-sheet (shown when _show_shortcuts is True)
         if self._show_shortcuts:
@@ -270,11 +284,11 @@ class CaptureOverlay(QWidget):
 
         # Panel background + border
         painter.setBrush(QColor(15, 15, 30, 235))
-        painter.setPen(QPen(QColor(147, 51, 234), 2))
+        painter.setPen(QPen(QColor(26, 86, 219), 1.5))
         painter.drawRoundedRect(px, py, panel_w, panel_h, 12, 12)
 
         # Title bar
-        painter.fillRect(px + 2, py + 2, panel_w - 4, title_h - 2, QColor(147, 51, 234, 210))
+        painter.fillRect(px + 2, py + 2, panel_w - 4, title_h - 2, QColor(26, 86, 219, 200))
         title_font = QFont(painter.font())
         title_font.setBold(True)
         title_font.setPointSize(painter.font().pointSize() + 1)
@@ -295,7 +309,7 @@ class CaptureOverlay(QWidget):
                 painter.fillRect(px + 2, row_y, panel_w - 4, line_h,
                                  QColor(255, 255, 255, 10))
             text_y = row_y + fm.ascent() + 4
-            painter.setPen(QColor(167, 139, 250))
+            painter.setPen(QColor(99, 179, 237))
             painter.drawText(key_x, text_y, key)
             painter.setPen(QColor(226, 232, 240))
             painter.drawText(val_x, text_y, desc)

@@ -208,9 +208,11 @@ class WindowCaptureOverlay(QWidget):
     capture_signal     = pyqtSignal(QRect)
     update_ui_dimensions = pyqtSignal(int, int)
 
-    _HIGHLIGHT_FG = QColor(147, 51, 234)
-    _DARK_OVERLAY = QColor(0, 0, 0, 80)
-    _LABEL_BG     = QColor(30, 41, 59, 220)
+    # Cyan selection highlight — sharp, professional, high contrast on any bg
+    _HIGHLIGHT_FG = QColor(6, 182, 212)      # #06b6d4 — cyan-500
+    _HIGHLIGHT_FILL = QColor(6, 182, 212, 18) # very subtle fill tint
+    _DARK_OVERLAY = QColor(0, 0, 0, 70)
+    _LABEL_BG     = QColor(15, 23, 42, 225)  # near-black badge
 
     def __init__(
         self,
@@ -394,45 +396,53 @@ class WindowCaptureOverlay(QWidget):
         if self._hovered_rect is not None:
             local = self._global_to_local(self._hovered_rect)
 
-            # Un-dim the hovered window region
+            # Restore full brightness inside the highlighted window
             painter.drawPixmap(local, self.screen_pixmap, local)
 
-            # Purple border
-            painter.setPen(QPen(self._HIGHLIGHT_FG, 3))
+            # Subtle fill tint
+            painter.fillRect(local, self._HIGHLIGHT_FILL)
+
+            # 2 px cyan border — sharp and precise
+            painter.setPen(QPen(self._HIGHLIGHT_FG, 2))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(local)
 
-            # Title badge
-            painter.setPen(Qt.white)
+            # Title badge — dark pill above (or inside) the window
             fm = painter.fontMetrics()
             tr = fm.boundingRect(self._hovered_title)
-            bx = local.center().x() - tr.width() // 2
-            MARGIN = 32
+            badge_w = tr.width() + 24
+            badge_h = tr.height() + 10
+            bx = local.center().x() - badge_w // 2
+            MARGIN = 36
             if local.top() >= MARGIN:
-                by = local.top() - 8
-                painter.fillRect(bx - 10, by - tr.height() - 5,
-                                 tr.width() + 20, tr.height() + 10,
-                                 self._HIGHLIGHT_FG)
-                painter.drawText(bx, by, self._hovered_title)
+                by = local.top() - badge_h - 4
+                painter.fillRect(bx, by, badge_w, badge_h, self._LABEL_BG)
+                # Cyan top accent on badge
+                painter.fillRect(bx, by, badge_w, 2, self._HIGHLIGHT_FG)
+                painter.setPen(QColor(226, 232, 240))
+                painter.drawText(bx + 12, by + badge_h - 5, self._hovered_title)
             else:
-                by = local.top() + tr.height() + 10
-                painter.fillRect(bx - 10, local.top() + 4,
-                                 tr.width() + 20, tr.height() + 10,
-                                 self._HIGHLIGHT_FG)
-                painter.drawText(bx, by, self._hovered_title)
+                by = local.top() + 4
+                painter.fillRect(bx, by, badge_w, badge_h, self._LABEL_BG)
+                painter.fillRect(bx, by, badge_w, 2, self._HIGHLIGHT_FG)
+                painter.setPen(QColor(226, 232, 240))
+                painter.drawText(bx + 12, by + badge_h - 5, self._hovered_title)
 
-        # Instruction bar
-        painter.setPen(Qt.white)
+        # Instruction bar — dark pill, centred, 40px from bottom
+        painter.setPen(QColor(203, 213, 225))
         fm = painter.fontMetrics()
-        inst = ("Click to capture window  |  ESC = Cancel"
+        inst = ("Click a window to capture  ·  ESC to cancel"
                 if self._windows
-                else "Click to capture area  |  ESC = Cancel  (window list unavailable)")
+                else "Click to capture  ·  ESC to cancel  (window detection unavailable)")
         ir = fm.boundingRect(inst)
-        ix = self.width() // 2 - ir.width() // 2
-        iy = self.height() - 50
-        painter.fillRect(ix - 20, iy - ir.height() - 10,
-                         ir.width() + 40, ir.height() + 20, self._LABEL_BG)
-        painter.drawText(ix, iy, inst)
+        iw = ir.width() + 48
+        ih = ir.height() + 16
+        ix = self.width() // 2 - iw // 2
+        iy = self.height() - 44
+        painter.fillRect(ix, iy, iw, ih, self._LABEL_BG)
+        # Cyan top accent
+        painter.fillRect(ix, iy, iw, 2, self._HIGHLIGHT_FG)
+        painter.drawText(ix + 24, iy + ih - 6, inst)
 
     # ── Mouse ─────────────────────────────────────────────────────────────────
 

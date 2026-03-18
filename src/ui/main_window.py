@@ -30,129 +30,227 @@ from PyQt5.QtWidgets import (
 logger = get_logger(__name__)
 APP_VERSION = __version__
 
-_BLUE         = "#2563eb"
-_BLUE_HOVER   = "#1d4ed8"
-_BLUE_LIGHT   = "#eff6ff"
-_BLUE_BORDER  = "#bfdbfe"
-_HDR_BG       = "#1e293b"
-_HDR_TEXT     = "#f1f5f9"
-_WIN_BG       = "#f8fafc"
-_SURFACE      = "#ffffff"
-_BORDER       = "#e2e8f0"
-_BORDER_MED   = "#cbd5e1"
-_TEXT_PRIMARY = "#0f172a"
-_TEXT_MUTED   = "#64748b"
-_TEXT_HINT    = "#94a3b8"
-_SUCCESS      = "#16a34a"
-_SUCCESS_BG   = "#f0fdf4"
-_SUCCESS_BDR  = "#bbf7d0"
-_DANGER       = "#dc2626"
+# ── Design system ─────────────────────────────────────────────────────────────
+# Tone: refined utilitarian. Dark graphite header, warm off-white body,
+# ink-blue primary, hairline borders. Every radius is 4 px — sharp but
+# not harsh. Typography leans slightly small and tight for a tool aesthetic.
+
+_ACCENT       = "#1a56db"   # ink blue — primary action
+_ACCENT_HOVER = "#1648c0"   # slightly darker on hover
+_ACCENT_LIGHT = "#eef2ff"   # very pale blue tint for selections / pills
+_ACCENT_BORDER= "#c7d7fc"   # border on blue-tinted surfaces
+
+_HDR_BG       = "#18202e"   # deep graphite — header bar
+_HDR_BORDER   = "#252f42"   # subtle rule below header
+_HDR_TEXT     = "#e8edf5"   # near-white header text
+_HDR_MUTED    = "#5a6a85"   # version / secondary header text
+
+_WIN_BG       = "#f5f6f8"   # warm off-white window background
+_SURFACE      = "#ffffff"   # card / input surfaces
+_SURFACE_ALT  = "#f0f2f5"   # alternating / hover surface
+
+_BORDER       = "#dde1e9"   # default hairline border
+_BORDER_MED   = "#c4cad6"   # slightly stronger border on hover
+
+_TEXT_PRIMARY = "#111827"   # near-black body text
+_TEXT_MUTED   = "#4b5563"   # secondary text
+_TEXT_HINT    = "#9ca3af"   # placeholder / hint text
+
+_SUCCESS      = "#0d7e4a"   # success green (darker, more serious)
+_SUCCESS_BG   = "#f0fdf6"
+_SUCCESS_BDR  = "#a7f3cf"
+
+_WARN         = "#92580a"   # amber warning text
+_WARN_BG      = "#fffbeb"
+_WARN_BDR     = "#fde68a"
+
+_DANGER       = "#b91c1c"   # muted red — less alarming than #dc2626
+
+# Keep these aliases so existing references resolve without change
+_BLUE         = _ACCENT
+_BLUE_HOVER   = _ACCENT_HOVER
+_BLUE_LIGHT   = _ACCENT_LIGHT
+_BLUE_BORDER  = _ACCENT_BORDER
 
 STYLE_WINDOW = f"background-color: {_WIN_BG};"
+
 STYLE_HEADER = f"""
 QWidget {{
     background-color: {_HDR_BG};
-    border-bottom: 1px solid #334155;
+    border-bottom: 1px solid {_HDR_BORDER};
 }}
 """
+
 STYLE_CAPTURE_BTN = f"""
 QPushButton {{
-    background-color: {_BLUE}; color: white; border: none;
-    border-radius: 6px; font-size: 14px; font-weight: bold;
-    padding: 14px 20px; letter-spacing: 0.3px;
+    background-color: {_ACCENT};
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 13px 20px;
+    letter-spacing: 0.2px;
 }}
-QPushButton:hover   {{ background-color: {_BLUE_HOVER}; }}
-QPushButton:pressed {{ background-color: {_BLUE_HOVER}; padding-top: 15px; }}
+QPushButton:hover   {{ background-color: {_ACCENT_HOVER}; }}
+QPushButton:pressed {{ background-color: {_ACCENT_HOVER}; padding-top: 14px; }}
 """
+
 STYLE_ICON_BTN = f"""
 QPushButton {{
-    background-color: {_SURFACE}; color: {_TEXT_MUTED};
-    border: 1px solid {_BORDER}; border-radius: 5px; font-size: 12px; padding: 5px 12px;
+    background-color: {_SURFACE};
+    color: {_TEXT_MUTED};
+    border: 1px solid {_BORDER};
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 5px 11px;
 }}
-QPushButton:hover  {{ background-color: {_WIN_BG}; color: {_TEXT_PRIMARY}; border-color: {_BORDER_MED}; }}
+QPushButton:hover  {{ background-color: {_SURFACE_ALT}; color: {_TEXT_PRIMARY};
+                      border-color: {_BORDER_MED}; }}
 QPushButton:pressed {{ background-color: {_BORDER}; }}
 """
+
 STYLE_PRIMARY_SM = f"""
 QPushButton {{
-    background-color: {_BLUE}; color: white; border: none;
-    border-radius: 5px; font-size: 12px; padding: 5px 14px;
+    background-color: {_ACCENT};
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 5px 14px;
+    font-weight: 500;
 }}
-QPushButton:hover   {{ background-color: {_BLUE_HOVER}; }}
-QPushButton:pressed {{ background-color: {_BLUE_HOVER}; }}
+QPushButton:hover   {{ background-color: {_ACCENT_HOVER}; }}
+QPushButton:pressed {{ background-color: {_ACCENT_HOVER}; }}
 QPushButton:disabled {{ background-color: {_BORDER}; color: {_TEXT_HINT}; }}
 """
+
 STYLE_DANGER_SM = f"""
 QPushButton {{
-    background-color: transparent; color: {_DANGER};
-    border: 1px solid {_BORDER}; border-radius: 5px; font-size: 12px; padding: 5px 12px;
+    background-color: transparent;
+    color: {_DANGER};
+    border: 1px solid {_BORDER};
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 5px 12px;
 }}
 QPushButton:hover  {{ background-color: #fef2f2; border-color: #fca5a5; }}
 QPushButton:pressed {{ background-color: #fee2e2; }}
 QPushButton:disabled {{ color: {_TEXT_HINT}; border-color: {_BORDER}; }}
 """
-# Issue #5: Exit as a low-prominence text link
+
 STYLE_EXIT_LINK = f"""
 QPushButton {{
-    background-color: transparent; color: {_TEXT_MUTED};
-    border: none; font-size: 12px; padding: 5px 8px; text-decoration: underline;
+    background-color: transparent;
+    color: {_TEXT_HINT};
+    border: none;
+    font-size: 12px;
+    padding: 5px 8px;
 }}
 QPushButton:hover  {{ color: {_DANGER}; }}
 QPushButton:pressed {{ color: {_DANGER}; }}
 """
+
 STYLE_PROFILE_LIST = f"""
 QListWidget {{
-    background: {_SURFACE}; border: 1px solid {_BORDER};
-    border-radius: 6px; outline: none; padding: 2px;
-    font-size: 12px; color: {_TEXT_PRIMARY};
+    background: {_SURFACE};
+    border: 1px solid {_BORDER};
+    border-radius: 4px;
+    outline: none;
+    padding: 2px;
+    font-size: 12px;
+    color: {_TEXT_PRIMARY};
 }}
-QListWidget::item {{ padding: 7px 10px; border-radius: 4px; border: none; }}
-QListWidget::item:hover {{ background: {_WIN_BG}; }}
-QListWidget::item:selected {{ background: {_BLUE_LIGHT}; color: {_BLUE}; font-weight: bold; }}
+QListWidget::item {{
+    padding: 7px 10px;
+    border-radius: 3px;
+    border: none;
+}}
+QListWidget::item:hover {{
+    background: {_SURFACE_ALT};
+}}
+QListWidget::item:selected {{
+    background: {_ACCENT_LIGHT};
+    color: {_ACCENT};
+    font-weight: 600;
+}}
 """
+
 STYLE_TAB = f"""
 QTabWidget {{ background: transparent; }}
 QTabWidget::pane {{
-    background: {_SURFACE}; border: 1px solid {_BORDER};
-    border-radius: 0px 0px 6px 6px; top: -1px;
+    background: {_SURFACE};
+    border: 1px solid {_BORDER};
+    border-radius: 0px 0px 4px 4px;
+    top: -1px;
 }}
 QTabBar::tab {{
-    background: {_WIN_BG}; color: {_TEXT_MUTED};
-    border: 1px solid {_BORDER}; border-bottom: 1px solid {_BORDER};
-    border-radius: 5px 5px 0 0; padding: 6px 0px;
-    min-width: 88px; max-width: 88px; margin-right: 1px;
-    font-size: 12px; qproperty-alignment: AlignCenter;
+    background: {_WIN_BG};
+    color: {_TEXT_HINT};
+    border: 1px solid {_BORDER};
+    border-bottom: 1px solid {_BORDER};
+    border-radius: 4px 4px 0 0;
+    padding: 6px 0px;
+    min-width: 84px;
+    max-width: 84px;
+    margin-right: 1px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    qproperty-alignment: AlignCenter;
 }}
 QTabBar::tab:selected {{
-    background: {_SURFACE}; color: {_BLUE}; font-weight: bold;
-    border-color: {_BORDER}; border-bottom: 2px solid {_BLUE};
+    background: {_SURFACE};
+    color: {_ACCENT};
+    font-weight: 600;
+    border-color: {_BORDER};
+    border-bottom: 2px solid {_ACCENT};
 }}
 QTabBar::tab:!selected {{ margin-top: 2px; }}
-QTabBar::tab:hover:!selected {{ color: {_TEXT_PRIMARY}; background: #f1f5f9; }}
-"""
-STYLE_SECTION_HDR = (
-    f"color: {_TEXT_PRIMARY}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
-)
-STYLE_SAVE_FOOTER = f"""
-QFrame {{
-    background-color: {_WIN_BG}; border: none;
-    border-top: 1px solid {_BORDER}; border-radius: 0px;
+QTabBar::tab:hover:!selected {{
+    color: {_TEXT_MUTED};
+    background: {_SURFACE_ALT};
 }}
 """
+
+STYLE_SECTION_HDR = (
+    f"color: {_TEXT_HINT}; font-size: 10px; font-weight: 600; letter-spacing: 0.8px;"
+)
+
+STYLE_SAVE_FOOTER = f"""
+QFrame {{
+    background-color: {_WIN_BG};
+    border: none;
+    border-top: 1px solid {_BORDER};
+    border-radius: 0px;
+}}
+"""
+
 STYLE_LABEL_MUTED = f"color: {_TEXT_HINT}; font-size: 11px;"
 STYLE_LABEL_HINT  = f"color: {_SUCCESS}; font-size: 11px;"
 STYLE_AUTOSAVE    = f"color: {_SUCCESS}; font-size: 10px; font-style: italic;"
+
 STYLE_HOTKEY_IDLE = f"""
 QLineEdit {{
-    background: {_SURFACE}; border: 1px solid {_BORDER};
-    border-radius: 5px; padding: 6px 10px; font-size: 13px; color: {_TEXT_PRIMARY};
+    background: {_SURFACE};
+    border: 1px solid {_BORDER};
+    border-radius: 4px;
+    padding: 7px 10px;
+    font-size: 12px;
+    color: {_TEXT_PRIMARY};
 }}
 QLineEdit:hover {{ border-color: {_BORDER_MED}; }}
 """
+
 STYLE_HOTKEY_RECORDING = f"""
 QLineEdit {{
-    background: {_BLUE_LIGHT}; border: 2px solid {_BLUE};
-    border-radius: 5px; padding: 6px 10px; font-size: 13px;
-    color: {_BLUE_HOVER}; font-weight: bold;
+    background: {_ACCENT_LIGHT};
+    border: 2px solid {_ACCENT};
+    border-radius: 4px;
+    padding: 7px 10px;
+    font-size: 12px;
+    color: {_ACCENT_HOVER};
+    font-weight: 600;
 }}
 """
 
@@ -307,9 +405,9 @@ class PortraitScreenshotApp(QMainWindow):
         self.active_profile_bar = QWidget()
         self.active_profile_bar.setStyleSheet(f"""
             QWidget {{
-                background-color: {_BLUE_LIGHT};
-                border: 1px solid {_BLUE_BORDER};
-                border-radius: 5px;
+                background-color: {_ACCENT_LIGHT};
+                border: 1px solid {_ACCENT_BORDER};
+                border-radius: 4px;
             }}
         """)
         pill_row = QHBoxLayout(self.active_profile_bar)
@@ -338,9 +436,9 @@ class PortraitScreenshotApp(QMainWindow):
         self._status_card_frame = QFrame()
         self._status_card_frame.setStyleSheet(f"""
             QFrame {{
-                background-color: {_WIN_BG};
+                background-color: {_SURFACE};
                 border: 1px solid {_BORDER};
-                border-radius: 6px;
+                border-radius: 4px;
             }}
         """)
         sf = QVBoxLayout(self._status_card_frame)
@@ -348,7 +446,7 @@ class PortraitScreenshotApp(QMainWindow):
         sf.setSpacing(2)
         self.status_label = QLabel()
         self.status_label.setStyleSheet(
-            f"color: {_TEXT_PRIMARY}; font-size: 12px; font-weight: 600;"
+            f"color: {_TEXT_PRIMARY}; font-size: 12px; font-weight: 600; letter-spacing: 0.1px;"
         )
         self.status_sub = QLabel()
         self.status_sub.setStyleSheet(STYLE_LABEL_MUTED)
@@ -455,9 +553,9 @@ class PortraitScreenshotApp(QMainWindow):
         self.footer_profile_name.setStyleSheet(f"""
             QLineEdit {{
                 background: {_SURFACE}; border: 1px solid {_BORDER};
-                border-radius: 4px; padding: 4px 8px; font-size: 12px; color: {_TEXT_PRIMARY};
+                border-radius: 4px; padding: 5px 9px; font-size: 12px; color: {_TEXT_PRIMARY};
             }}
-            QLineEdit:focus {{ border-color: {_BLUE}; }}
+            QLineEdit:focus {{ border-color: {_ACCENT}; }}
         """)
         self.footer_profile_name.returnPressed.connect(self._save_profile_from_footer)
         save_row.addWidget(self.footer_profile_name, 1)
@@ -470,8 +568,8 @@ class PortraitScreenshotApp(QMainWindow):
         # Issue #9: inline overwrite warning
         self.footer_overwrite_lbl = QLabel()
         self.footer_overwrite_lbl.setStyleSheet(
-            f"color: #b45309; font-size: 11px; background: #fffbeb; "
-            f"border: 1px solid #fde68a; border-radius: 4px; padding: 3px 8px;"
+            f"color: {_WARN}; font-size: 11px; background: {_WARN_BG}; "
+            f"border: 1px solid {_WARN_BDR}; border-radius: 4px; padding: 3px 8px;"
         )
         self.footer_overwrite_lbl.setVisible(False)
         footer_outer.addWidget(self.footer_overwrite_lbl)
@@ -507,18 +605,18 @@ class PortraitScreenshotApp(QMainWindow):
         )
         row.addWidget(name_lbl)
         ver_lbl = QLabel(f"v{APP_VERSION}")
-        ver_lbl.setStyleSheet("color: #64748b; font-size: 11px; background: transparent;")
+        ver_lbl.setStyleSheet(f"color: {_HDR_MUTED}; font-size: 11px; background: transparent;")
         row.addWidget(ver_lbl)
         row.addStretch()
         if with_back:
             back_btn = QPushButton("← Back")
-            back_btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent; color: #94a3b8;
-                    border: 1px solid #334155; border-radius: 4px;
+            back_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent; color: {_HDR_MUTED};
+                    border: 1px solid {_HDR_BORDER}; border-radius: 4px;
                     font-size: 11px; padding: 3px 10px;
-                }
-                QPushButton:hover { color: #f1f5f9; border-color: #475569; }
+                }}
+                QPushButton:hover {{ color: {_HDR_TEXT}; border-color: #3a4a65; }}
             """)
             back_btn.clicked.connect(self._close_settings)
             row.addWidget(back_btn)
@@ -772,7 +870,7 @@ class PortraitScreenshotApp(QMainWindow):
 
         self.settings_profile_list = QListWidget()
         self.settings_profile_list.setStyleSheet(STYLE_PROFILE_LIST)
-        self.settings_profile_list.setMinimumHeight(120)
+        self.settings_profile_list.setMinimumHeight(130)
         self.settings_profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Issue #1: single click = load immediately (same as Quick panel)
         self.settings_profile_list.itemClicked.connect(
@@ -1111,7 +1209,7 @@ class PortraitScreenshotApp(QMainWindow):
                 QFrame {{
                     background-color: {_SUCCESS_BG};
                     border: 1px solid {_SUCCESS_BDR};
-                    border-radius: 6px;
+                    border-radius: 4px;
                 }}
             """)
             QTimer.singleShot(
