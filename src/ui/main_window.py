@@ -681,6 +681,28 @@ class PortraitScreenshotApp(QMainWindow):
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
+        layout.addSpacing(10)
+        layout.addWidget(self._divider())
+        layout.addSpacing(10)
+
+        # ── Confirmation ──────────────────────────────────────────────────────
+        layout.addWidget(self._section_label("Confirmation"))
+        layout.addSpacing(8)
+        self.confirm_capture_checkbox = QCheckBox("Require Enter to confirm each capture")
+        self.confirm_capture_checkbox.setChecked(
+            self.settings.get("confirm_capture", True)
+        )
+        self.confirm_capture_checkbox.stateChanged.connect(self._schedule_auto_save)
+        layout.addWidget(self.confirm_capture_checkbox)
+        layout.addSpacing(4)
+        confirm_hint = QLabel(
+            "When on, the capture box appears first so you can reposition it before "
+            "confirming with Enter. Turn off for a trusted profile to capture instantly."
+        )
+        confirm_hint.setStyleSheet(STYLE_LABEL_MUTED)
+        confirm_hint.setWordWrap(True)
+        layout.addWidget(confirm_hint)
+
         # ── Region-only settings (hidden for other modes) ─────────────────────
         # No margins on the container itself — the outer layout's spacing (12px)
         # provides the gap above. Internal spacing matches the outer layout so
@@ -1159,6 +1181,9 @@ class PortraitScreenshotApp(QMainWindow):
         self.copy_to_clipboard_checkbox.setChecked(
             self.settings.get("copy_to_clipboard", True)
         )
+        self.confirm_capture_checkbox.setChecked(
+            self.settings.get("confirm_capture", True)
+        )
         # Restore capture mode — sync buttons in the Capture tab
         loaded_mode = self.settings.get("capture_mode", "region")
         for k, btn in self._mode_buttons.items():
@@ -1576,6 +1601,7 @@ class PortraitScreenshotApp(QMainWindow):
             "9:16" if self.ratio_9_16.isChecked() else "16:9"
         )
         self.settings["copy_to_clipboard"] = self.copy_to_clipboard_checkbox.isChecked()
+        self.settings["confirm_capture"]   = self.confirm_capture_checkbox.isChecked()
         # capture_mode is already kept live in self.settings by _on_mode_selected;
         # record it here too so _snapshot always captures the full state.
         for k, btn in self._mode_buttons.items():

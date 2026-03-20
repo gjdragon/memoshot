@@ -35,6 +35,10 @@ DEFAULT_SETTINGS: dict = {
     "profiles": {},
     # ── Capture mode ───────────────────────────────────────────────────────────
     "capture_mode": "region",    # one of CAPTURE_MODES
+    # ── Confirmation ───────────────────────────────────────────────────────────
+    # True  → user must press Enter to confirm each capture (safe default)
+    # False → capture fires immediately when the hotkey is pressed
+    "confirm_capture": True,
     # ── Logging ────────────────────────────────────────────────────────────────
     "logging_enabled": True,
     "log_folder": "",            # empty → use default (src/Logs/)
@@ -55,6 +59,7 @@ PROFILE_KEYS = [
     "lock_ratio",
     "copy_to_clipboard",
     "capture_mode",
+    "confirm_capture",
     "last_capture_rect_9:16",
     "last_capture_rect_16:9",
 ]
@@ -113,6 +118,9 @@ def load_profile(settings: dict, name: str) -> bool:
     # Backwards compat: profiles saved before capture_mode existed
     if "capture_mode" not in data:
         data["capture_mode"] = "region"
+    # Backwards compat: profiles saved before confirm_capture existed
+    if "confirm_capture" not in data:
+        data["confirm_capture"] = True
     # hotkey is a global setting — never let a profile override it
     saved_hotkey = settings.get("hotkey")
     settings.update(data)

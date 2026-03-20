@@ -82,6 +82,11 @@ class CaptureOverlay(QWidget):
 
         self._capture_screens()
 
+        # If confirmation is disabled for this profile, fire immediately
+        # after the overlay has fully painted (100 ms gives Qt one frame).
+        if not self.settings.get("confirm_capture", True):
+            QTimer.singleShot(100, self._capture_and_save)
+
     # ── Setup helpers ──────────────────────────────────────────────────────────
 
     def _setup_full_desktop_geometry(self) -> None:
@@ -238,7 +243,10 @@ class CaptureOverlay(QWidget):
         _BAR_BG  = QColor(15, 23, 42, 225)
         _BAR_ACC = QColor(26, 86, 219)
         painter.setPen(QColor(203, 213, 225))
-        inst = "Enter — capture  ·  Esc — cancel  ·  S — snap  ·  ↑↓←→ — nudge  ·  ? — shortcuts"
+        if self.settings.get("confirm_capture", True):
+            inst = "Enter — capture  ·  Esc — cancel  ·  S — snap  ·  ↑↓←→ — nudge  ·  ? — shortcuts"
+        else:
+            inst = "Auto-capture active  ·  Esc — cancel  ·  S — snap  ·  ↑↓←→ — nudge"
         ir = fm.boundingRect(inst)
         iw = ir.width() + 48
         ih = ir.height() + 16
