@@ -44,8 +44,9 @@ DEFAULT_SETTINGS: dict = {
 # Keys that are stored inside a profile snapshot.
 # capture_mode is intentionally included so a profile fully describes how
 # to capture, not just where to save.
+# NOTE: "hotkey" is intentionally excluded — it is a global setting that
+# is never overridden by loading a profile.
 PROFILE_KEYS = [
-    "hotkey",
     "save_location",
     "file_prefix",
     "portrait_width",
@@ -112,7 +113,11 @@ def load_profile(settings: dict, name: str) -> bool:
     # Backwards compat: profiles saved before capture_mode existed
     if "capture_mode" not in data:
         data["capture_mode"] = "region"
+    # hotkey is a global setting — never let a profile override it
+    saved_hotkey = settings.get("hotkey")
     settings.update(data)
+    if saved_hotkey is not None:
+        settings["hotkey"] = saved_hotkey
     # Validate the loaded mode
     if settings.get("capture_mode") not in CAPTURE_MODES:
         settings["capture_mode"] = "region"

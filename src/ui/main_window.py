@@ -370,6 +370,8 @@ class PortraitScreenshotApp(QMainWindow):
         self._init_ui()
         self._init_tray()
         QTimer.singleShot(500, self._register_hotkey)
+        # Auto-load "Default" profile if it exists
+        QTimer.singleShot(600, self._load_default_profile_on_startup)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -674,7 +676,7 @@ class PortraitScreenshotApp(QMainWindow):
         self.hotkey_input.installEventFilter(self)
         layout.addWidget(self.hotkey_input)
         layout.addSpacing(4)
-        hint = QLabel("Click to record — press any combination (e.g. F12, Ctrl+Shift+S)")
+        hint = QLabel("Global shortcut — applies to all profiles. Click to record a new combination.")
         hint.setStyleSheet(STYLE_LABEL_MUTED)
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -1313,6 +1315,13 @@ class PortraitScreenshotApp(QMainWindow):
                 self, "Hotkey Error",
                 f"Could not register hotkey: {self.settings['hotkey']}\n{exc}",
             )
+
+    def _load_default_profile_on_startup(self) -> None:
+        """If a profile named 'Default' exists, load it automatically at startup."""
+        DEFAULT_PROFILE_NAME = "Default"
+        if DEFAULT_PROFILE_NAME in self.settings.get("profiles", {}):
+            logger.info("Auto-loading 'Default' profile on startup")
+            self._load_profile_by_name(DEFAULT_PROFILE_NAME)
 
     # ── Capture flow ──────────────────────────────────────────────────────────
 
