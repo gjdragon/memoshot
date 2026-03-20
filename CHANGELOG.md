@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [1.10.0] 20 Mar 2026
+ - Added extra Output file format
+ - Added rename profile featureless
+ - Added drag-and-drop reorder profile list
+ - Added Export/import profile
+
 ## [1.9.0] 20 Mar 2026
  - Changed inline hints to pop-up windows for help guide
  

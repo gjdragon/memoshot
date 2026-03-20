@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 import core.settings as cfg
-from core.settings import CAPTURE_MODES
+from core.settings import CAPTURE_MODES, OUTPUT_FORMATS
 from core.hotkey import HotkeyThread
 from ui.overlay import CaptureOverlay
 from ui.window_overlay import WindowCaptureOverlay, grab_desktop_pixmap, get_window_list, _get_memoshot_hwnd
@@ -23,8 +23,8 @@ from PyQt5.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
 from PyQt5.QtWidgets import (
     QAction, QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMessageBox, QPushButton, QRadioButton, QSpinBox, QStackedWidget,
-    QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPushButton, QRadioButton, QSlider, QSpinBox,
+    QStackedWidget, QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget,
 )
 
 logger = get_logger(__name__)
@@ -889,6 +889,50 @@ class PortraitScreenshotApp(QMainWindow):
         )
         self.copy_to_clipboard_checkbox.stateChanged.connect(self._schedule_auto_save)
         layout.addWidget(self.copy_to_clipboard_checkbox)
+
+        layout.addWidget(self._divider())
+        layout.addLayout(self._section_row(
+            "Output format",
+            "PNG — lossless, largest file size. Best for editing.\n"
+            "JPEG — lossy, smallest file size. Best for sharing.\n"
+            "WebP — modern format, smaller than PNG with good quality.",
+        ))
+        fmt_row = QHBoxLayout()
+        fmt_row.setSpacing(12)
+        self._fmt_group = QButtonGroup(self)
+        current_fmt = self.settings.get("output_format", "png")
+        _fmt_labels = {"png": "PNG", "jpeg": "JPEG", "webp": "WebP"}
+        self._fmt_buttons: dict = {}
+        for fmt in OUTPUT_FORMATS:
+            rb = QRadioButton(_fmt_labels[fmt])
+            rb.setChecked(fmt == current_fmt)
+            rb.toggled.connect(lambda checked, f=fmt: self._on_format_changed(f, checked))
+            self._fmt_group.addButton(rb)
+            self._fmt_buttons[fmt] = rb
+            fmt_row.addWidget(rb)
+        fmt_row.addStretch()
+        layout.addLayout(fmt_row)
+
+        # JPEG quality — only visible when JPEG is selected
+        self._jpeg_quality_widget = QWidget()
+        jq_layout = QHBoxLayout(self._jpeg_quality_widget)
+        jq_layout.setContentsMargins(0, 4, 0, 0)
+        jq_layout.setSpacing(8)
+        jq_layout.addWidget(QLabel("Quality:"))
+        self.jpeg_quality_slider = QSlider(Qt.Horizontal)
+        self.jpeg_quality_slider.setRange(1, 100)
+        self.jpeg_quality_slider.setValue(self.settings.get("jpeg_quality", 90))
+        self.jpeg_quality_slider.setFixedWidth(120)
+        self.jpeg_quality_slider.valueChanged.connect(self._on_jpeg_quality_changed)
+        jq_layout.addWidget(self.jpeg_quality_slider)
+        self.jpeg_quality_lbl = QLabel(str(self.settings.get("jpeg_quality", 90)))
+        self.jpeg_quality_lbl.setFixedWidth(26)
+        self.jpeg_quality_lbl.setStyleSheet(f"color: {_TEXT_MUTED}; font-size: 11px;")
+        jq_layout.addWidget(self.jpeg_quality_lbl)
+        jq_layout.addStretch()
+        layout.addWidget(self._jpeg_quality_widget)
+        self._jpeg_quality_widget.setVisible(current_fmt == "jpeg")
+
         layout.addStretch()
         return tab
 
@@ -905,6 +949,18 @@ class PortraitScreenshotApp(QMainWindow):
                 "→  e.g.  20240315_143022.png  (timestamp default)"
             )
 
+    def _on_format_changed(self, fmt: str, checked: bool) -> None:
+        if not checked:
+            return
+        self.settings["output_format"] = fmt
+        self._jpeg_quality_widget.setVisible(fmt == "jpeg")
+        self._schedule_auto_save()
+
+    def _on_jpeg_quality_changed(self, value: int) -> None:
+        self.settings["jpeg_quality"] = value
+        self.jpeg_quality_lbl.setText(str(value))
+        self._schedule_auto_save()
+
     # ── Tab: Profiles ─────────────────────────────────────────────────────────
 
     def _build_tab_profiles(self) -> QWidget:
@@ -916,22 +972,29 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addLayout(self._section_row(
             "Your profiles",
             "Profiles save your capture settings so you can switch between setups instantly.\n"
-            "Click a profile to load it. To create one: adjust settings, type a name\n"
-            "in the footer box and press Save. A profile named 'Default' loads automatically\n"
-            "every time the app starts.",
+            "Click a profile to load it. Double-click a name to rename it in-place.\n"
+            "Drag profiles to reorder them. A profile named 'Default' loads on startup.",
         ))
         layout.addSpacing(4)
 
-        # Profile list — stretch=1 so it fills all available vertical space
+        # Profile list — drag-drop reorder + double-click rename
         self.settings_profile_list = QListWidget()
         self.settings_profile_list.setStyleSheet(STYLE_PROFILE_LIST)
         self.settings_profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.settings_profile_list.setDragDropMode(QListWidget.InternalMove)
+        self.settings_profile_list.setDefaultDropAction(Qt.MoveAction)
         self.settings_profile_list.itemClicked.connect(
             self._on_settings_profile_list_clicked
         )
+        self.settings_profile_list.itemDoubleClicked.connect(
+            self._on_profile_double_clicked
+        )
+        self.settings_profile_list.model().rowsMoved.connect(
+            self._on_profile_rows_moved
+        )
         layout.addWidget(self.settings_profile_list, 1)
 
-        # Action row: Delete + Edit buttons + selection label
+        # Action row: Delete + Edit + Export buttons + selection label
         action_row = QHBoxLayout()
         action_row.setSpacing(6)
         self.sp_delete_btn = QPushButton("Delete")
@@ -950,11 +1013,31 @@ class PortraitScreenshotApp(QMainWindow):
         self.sp_edit_btn.clicked.connect(self._edit_selected_profile)
         action_row.addWidget(self.sp_edit_btn)
 
+        self.sp_export_btn = QPushButton("↑ Export")
+        self.sp_export_btn.setStyleSheet(STYLE_ICON_BTN)
+        self.sp_export_btn.setEnabled(False)
+        self.sp_export_btn.setToolTip("Export the selected profile to a .json file.")
+        self.sp_export_btn.clicked.connect(self._export_selected_profile)
+        action_row.addWidget(self.sp_export_btn)
+
         action_row.addStretch()
         self.sp_status_lbl = QLabel()
         self.sp_status_lbl.setStyleSheet(STYLE_LABEL_MUTED)
         action_row.addWidget(self.sp_status_lbl)
         layout.addLayout(action_row)
+
+        # Import button on its own row (no selection needed)
+        import_row = QHBoxLayout()
+        import_btn = QPushButton("↓ Import profiles from file…")
+        import_btn.setStyleSheet(STYLE_ICON_BTN)
+        import_btn.setToolTip(
+            "Load profiles from a previously exported .json file.\n"
+            "Profiles whose names already exist will be skipped."
+        )
+        import_btn.clicked.connect(self._import_profiles)
+        import_row.addWidget(import_btn)
+        import_row.addStretch()
+        layout.addLayout(import_row)
 
         # Inline detail card — shown when a profile is selected
         self.sp_detail_card = QFrame()
@@ -1206,6 +1289,7 @@ class PortraitScreenshotApp(QMainWindow):
         has_selection = bool(selected and selected.flags() & Qt.ItemIsSelectable)
         self.sp_delete_btn.setEnabled(has_selection)
         self.sp_edit_btn.setEnabled(has_selection)
+        self.sp_export_btn.setEnabled(has_selection)
         if has_selection:
             name = selected.text()
             self.sp_status_lbl.setText(f"Selected: {name}")
@@ -1227,12 +1311,14 @@ class PortraitScreenshotApp(QMainWindow):
         prefix   = data.get("file_prefix", "") or "—"
         confirm  = "Yes" if data.get("confirm_capture", True) else "No (instant)"
         clipboard = "Yes" if data.get("copy_to_clipboard", True) else "No"
-        # Shorten long folder paths for display
+        fmt      = data.get("output_format", "png").upper()
+        if fmt == "JPEG":
+            fmt = f"JPEG ({data.get('jpeg_quality', 90)}%)"
         max_len = 38
         if len(folder) > max_len:
             folder = "…" + folder[-(max_len - 1):]
         lines = [
-            f"Mode: {mode}   ·   Size: {w} × {h} px",
+            f"Mode: {mode}   ·   Size: {w} × {h} px   ·   Format: {fmt}",
             f"Save to: {folder}",
             f"Prefix: {prefix}   ·   Clipboard: {clipboard}   ·   Confirm: {confirm}",
         ]
@@ -1279,18 +1365,135 @@ class PortraitScreenshotApp(QMainWindow):
         if not item or not (item.flags() & Qt.ItemIsSelectable):
             return
         name = item.text()
-        # Load the profile so all tab widgets reflect its values
         self._load_profile_by_name(name)
-        # Pre-fill the footer save box with the profile name so Save overwrites it
         self.footer_profile_name.setText(name)
-        # Switch to the Capture tab so the user sees the settings immediately
         self.tabs.setCurrentIndex(0)
-        # Show an inline prompt in the autosave label area
         self.autosave_label.setText(f'✏  Editing "{name}" — make changes then press Save')
         self.autosave_label.setStyleSheet(
             f"color: {_WARN}; font-size: 10px; font-style: italic;"
         )
         QTimer.singleShot(6000, self._reset_autosave_label)
+
+    def _on_profile_double_clicked(self, item: QListWidgetItem) -> None:
+        """Start inline rename on double-click."""
+        if not (item.flags() & Qt.ItemIsSelectable):
+            return
+        old_name = item.text()
+        # Make the item temporarily editable
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+        self.settings_profile_list.editItem(item)
+        # Connect commit signal (disconnect first to avoid duplicates)
+        try:
+            self.settings_profile_list.itemChanged.disconnect(self._on_profile_rename_committed)
+        except TypeError:
+            pass
+        self._rename_old_name = old_name
+        self.settings_profile_list.itemChanged.connect(self._on_profile_rename_committed)
+
+    def _on_profile_rename_committed(self, item: QListWidgetItem) -> None:
+        """Called when the user finishes editing a profile name."""
+        self.settings_profile_list.itemChanged.disconnect(self._on_profile_rename_committed)
+        # Remove editable flag regardless of outcome
+        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+        new_name = item.text().strip()
+        old_name = getattr(self, "_rename_old_name", None)
+        if not old_name:
+            return
+        if new_name == old_name:
+            return
+        if not new_name:
+            item.setText(old_name)  # revert blank
+            return
+        if not cfg.rename_profile(self.settings, old_name, new_name):
+            QMessageBox.warning(
+                self, "Rename failed",
+                f'A profile named "{new_name}" already exists.',
+            )
+            item.setText(old_name)
+            return
+        # Keep active profile tracking consistent
+        if self._active_profile == old_name:
+            self._active_profile = new_name
+        self._rebuild_all_profile_lists()
+        self._refresh_active_profile_bar()
+        # Re-select the renamed item
+        for i in range(self.settings_profile_list.count()):
+            it = self.settings_profile_list.item(i)
+            if it and it.text() == new_name:
+                self.settings_profile_list.setCurrentItem(it)
+                self._refresh_profile_detail_card(new_name)
+                break
+        self.autosave_label.setText(f'✔  Profile renamed to "{new_name}"')
+        self._autosave_show()
+        QTimer.singleShot(3000, self._reset_autosave_label)
+
+    def _on_profile_rows_moved(self, *_args) -> None:
+        """Persist the new order after a drag-drop reorder."""
+        new_order = []
+        for i in range(self.settings_profile_list.count()):
+            it = self.settings_profile_list.item(i)
+            if it and (it.flags() & Qt.ItemIsSelectable):
+                new_order.append(it.text())
+        cfg.reorder_profiles(self.settings, new_order)
+        # Mirror order in the quick-panel list too
+        self._rebuild_profile_list()
+
+    def _export_selected_profile(self) -> None:
+        """Export the currently selected profile to a JSON file."""
+        item = self.settings_profile_list.currentItem()
+        if not item or not (item.flags() & Qt.ItemIsSelectable):
+            return
+        name = item.text()
+        default_path = os.path.join(
+            os.path.expanduser("~"), f"memoshot_profile_{name}.json"
+        )
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Export Profile", default_path,
+            "MemoShot Profile (*.json);;All Files (*)"
+        )
+        if not filepath:
+            return
+        if cfg.export_profiles(self.settings, [name], filepath):
+            self.autosave_label.setText(f'✔  Profile "{name}" exported')
+            self._autosave_show()
+            QTimer.singleShot(3000, self._reset_autosave_label)
+        else:
+            QMessageBox.warning(self, "Export failed", f"Could not write to:\n{filepath}")
+
+    def _import_profiles(self) -> None:
+        """Import profiles from a JSON file."""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Import Profiles", os.path.expanduser("~"),
+            "MemoShot Profile (*.json);;All Files (*)"
+        )
+        if not filepath:
+            return
+        imported, skipped = cfg.import_profiles(self.settings, filepath)
+        self._rebuild_all_profile_lists()
+        self._refresh_active_profile_bar()
+        if imported:
+            names = ", ".join(f'"{n}"' for n in imported)
+            msg = f"Imported: {names}"
+            if skipped:
+                msg += f"\nSkipped (already exist): {', '.join(skipped)}"
+            self.autosave_label.setText(f"✔  {len(imported)} profile(s) imported")
+            self._autosave_show()
+            QTimer.singleShot(3000, self._reset_autosave_label)
+            if skipped:
+                QMessageBox.information(self, "Import complete", msg)
+        else:
+            if skipped:
+                QMessageBox.warning(
+                    self, "Nothing imported",
+                    f"All profiles in the file already exist:\n{', '.join(skipped)}\n\n"
+                    "Rename or delete them first, then import again."
+                )
+            else:
+                QMessageBox.warning(
+                    self, "Import failed",
+                    "No profiles could be read from the selected file.\n"
+                    "Make sure it is a valid MemoShot export."
+                )
 
     # ── Save as profile (issue #9: overwrite warning) ─────────────────────────
 
@@ -1350,6 +1553,11 @@ class PortraitScreenshotApp(QMainWindow):
         self.confirm_capture_checkbox.setChecked(
             self.settings.get("confirm_capture", True)
         )
+        loaded_fmt = self.settings.get("output_format", "png")
+        for fmt, rb in self._fmt_buttons.items():
+            rb.setChecked(fmt == loaded_fmt)
+        self._jpeg_quality_widget.setVisible(loaded_fmt == "jpeg")
+        self.jpeg_quality_slider.setValue(self.settings.get("jpeg_quality", 90))
         # Restore capture mode — sync buttons in the Capture tab
         loaded_mode = self.settings.get("capture_mode", "region")
         for k, btn in self._mode_buttons.items():
@@ -1771,6 +1979,11 @@ class PortraitScreenshotApp(QMainWindow):
         )
         self.settings["copy_to_clipboard"] = self.copy_to_clipboard_checkbox.isChecked()
         self.settings["confirm_capture"]   = self.confirm_capture_checkbox.isChecked()
+        for fmt, rb in self._fmt_buttons.items():
+            if rb.isChecked():
+                self.settings["output_format"] = fmt
+                break
+        self.settings["jpeg_quality"] = self.jpeg_quality_slider.value()
         # capture_mode is already kept live in self.settings by _on_mode_selected;
         # record it here too so _snapshot always captures the full state.
         for k, btn in self._mode_buttons.items():
