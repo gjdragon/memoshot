@@ -5,88 +5,76 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
-## [1.10.0] 20 Mar 2026
- - Added extra Output file format
- - Added rename profile featureless
- - Added drag-and-drop reorder profile list
- - Added Export/import profile
 
-## [1.9.0] 20 Mar 2026
- - Changed inline hints to pop-up windows for help guide
- 
-## [1.8.1] 20 Mar 2026
- - Added default profile
- - Made the shortcut key globle for all the profiles. it is not controlled by individual profile any more
+## [2.0.0] — 20 Mar 2026
+
+### Added
+
+- **Output format selection** — choose PNG, JPEG, or WebP per profile. JPEG includes a quality slider (1–100). File extensions update accordingly (`.png`, `.jpg`, `.webp`).
+- **Rename profile in-place** — double-click any profile name in the list to rename it without changing its settings or position.
+- **Drag-and-drop profile reordering** — drag rows in the Profiles list to set a custom order. Order persists across sessions via a new `profile_order` field in settings.
+- **Export profile** — export any selected profile to a `.json` file via the new Export button.
+- **Import profiles** — import one or more profiles from a previously exported `.json` file. Existing names are skipped with a clear summary of what was imported vs skipped.
+- **Capture confirmation per profile** — each profile can require Enter to confirm a capture, or fire instantly. Defaults to on (confirmation required). Test Capture always requires confirmation regardless of this setting.
+- **Default profile auto-load** — if a profile named `Default` exists, it is loaded automatically on startup.
+- **Global hotkey** — the hotkey is now a global setting shared across all profiles. Loading a profile never changes your hotkey.
+- **Edit profile** — select a profile and click Edit to load its settings into all tabs with the name pre-filled in the footer, ready to modify and save back.
+- **Profile detail card** — selecting a profile in the Profiles tab shows an inline summary of its key settings (mode, dimensions, format, save folder, prefix, clipboard, confirm).
+- **`?` tooltip help system** — all inline hint paragraphs replaced with small `?` badges next to each section header. Hovering shows the guide text. Frees significant vertical space across all tabs.
+- **Profile list fills available space** — the profile list in the Profiles tab now expands to use all available vertical space instead of leaving a blank gap.
+
+### Changed
+
+- Profiles are now stored with a user-defined order (`profile_order`) rather than sorted alphabetically.
+- `screenshot.py` refactored to support multiple output formats and extensions.
+- Section headers across all tabs converted from plain labels to `_section_row()` helpers that accept a tooltip.
+
+### Fixed
+
+- `AttributeError` on startup when profile list was populated before its dependent buttons were constructed.
+
+---
+
+## [1.9.0] — 20 Mar 2026
+
+### Changed
+
+- All inline hint paragraphs in Settings tabs converted to hover tooltips on `?` badges next to section headers. Reduces UI height and clutter while keeping guidance accessible.
+
+---
+
+## [1.8.1] — 20 Mar 2026
+
+### Added
+
+- **Default profile** — a profile named `Default` is automatically loaded on every app start.
+- **Global hotkey** — hotkey removed from `PROFILE_KEYS`; loading a profile no longer overwrites the global hotkey setting.
+
+---
 
 ## [1.8.0] — UX improvements & polish
+
+---
 
 ## [1.7.0] — UX improvements & polish
 
 ### Added
 
-- **Active-profile pill on Quick Capture panel.** A small blue indicator bar
-  labelled "Using: \<name\>" now appears below the header whenever a profile is
-  loaded. It hides itself when no profile is active, so the current context is
-  always unambiguous at a glance.
-
-- **Arrow-key nudging on the capture overlay.** Arrow keys move the selection
-  rectangle 1 px per press. Holding `Shift` increases the step to 10 px. Allows
-  precise positioning without a second drag attempt. The instruction bar and the
-  `?` shortcut cheat-sheet both document the new keys.
-
-- **Overwrite warning when saving a profile.** If the name in the "Save as
-  profile" footer already exists, an amber inline warning appears —
-  *"'\<name\>' already exists — press Save again to overwrite"* — and the save
-  is blocked. Pressing Save a second time confirms the overwrite. Prevents silent
-  data loss.
-
-- **Live file-prefix example.** The Output tab shows a live preview line below
-  the prefix field that updates as you type, e.g.
-  `→  myshot_001.png,  myshot_002.png`. When the field is empty it shows the
-  timestamp default: `→  20240315_143022.png`.
-
-- **Camera silhouette tray icon.** The system-tray icon is now a painted camera
-  shape (body, viewfinder bump, lens ring, centre highlight dot) drawn with
-  `QPainter`. Recognisable at 16–32 px system-tray sizes. Replaces the
-  featureless solid blue square.
+- Active-profile pill on Quick Capture panel.
+- Arrow-key nudging on the capture overlay (1 px / 10 px with Shift).
+- Overwrite warning when saving a profile with an existing name.
+- Live file-prefix example preview in the Output tab.
+- Camera silhouette tray icon drawn with QPainter.
 
 ### Changed
 
-- **Consistent single-click profile loading.** Clicking a profile row in
-  Settings → Profiles now loads it immediately, identical to the Quick Capture
-  panel. The separate "Load" button has been removed.
-
-- **Status card green flash.** After every successful capture or profile load,
-  the status card briefly flashes green before returning to its normal style,
-  giving clear visual confirmation that the action registered.
-
-- **Exit requires no confirmation.** The "Are you sure?" dialog has been removed.
-  Since settings auto-save on every change and the app reopens trivially, the
-  dialog added friction with no benefit.
-
-- **Status card cold-start hint.** When no capture has been made yet, the status
-  sub-label now reads *"Press \<HOTKEY\> from any app to start your first
-  capture"* instead of the unhelpful "No previous capture in this mode". The
-  hotkey shown updates dynamically.
-
-- **Settings panel minimum height.** `QTabWidget` now has
-  `setMinimumHeight(280)`, preventing the window from jumping or shrinking when
-  switching between tabs with different content heights.
-
-- **Toolbar normalised.** All three primary toolbar buttons (⚙ Settings,
-  📂 Open folder, ⬜ Tray) share a consistent icon-button style. Exit is demoted
-  to a plain underlined text link that turns red on hover.
-
-- **Dimension badge flips when near the top edge.** The "W × H px" badge on the
-  capture overlay no longer clips off-screen when the selection is near `y = 0`.
-  It renders inside the selection when there is insufficient space above.
-
-- **File prefix placeholder simplified.** Changed from the ambiguous
-  `"Empty = timestamp · myshot1.png, myshot2.png…"` to
-  `"Leave empty to use timestamps"`. The live example line takes over the role of
-  showing what the output will look like.
-
-- Version bumped to `1.7.0`.
+- Single-click profile loading in Settings → Profiles (Load button removed).
+- Status card green flash after every capture or profile load.
+- Exit requires no confirmation dialog.
+- Status card cold-start hint shows active hotkey.
+- Settings panel minimum height set to prevent window jumping between tabs.
+- Toolbar normalised; Exit demoted to text link.
+- Dimension badge flips inside the selection when near the top edge.
 
 ---
 
@@ -98,36 +86,16 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Multi-monitor full-screen capture cuts off taskbar on non-primary screens.**
-  Three coordinate-space mismatches corrected in `ui/overlay.py`:
-  `_get_valid_last_region` now translates the stored rect to global coords before
-  the screen-intersection check; initial rect placement converts global screen
-  coords to local overlay coords; `_clamp_rect_to_desktop` bounds derived from
-  actual screen geometries rather than the raw overlay origin.
-
-- **"Logging is disabled" shown even when the checkbox is ticked.** Empty-string
-  log folder resolved before `os.makedirs` call; except branch resets
-  `_current_log_path = None` on genuine failure.
-
-- **Tab bar scroll arrows with four tabs.** Removed `setExpanding(True)`;
-  explicit `min-width: 88px; max-width: 88px` in tab stylesheet.
-
-- **Browse button text clipped.** `setFixedWidth` widened from 72 to 80 px.
+- Multi-monitor full-screen capture cuts off taskbar on non-primary screens.
+- "Logging is disabled" shown even when checkbox is ticked.
+- Tab bar scroll arrows with four tabs.
+- Browse button text clipped.
 
 ### Added
 
-- **Logging tab** — enable/disable, log level (INFO / DEBUG), log folder with
-  Browse, current session file path, 📂 Open log folder button.
-- **`utils/logger.py`** full rewrite — singleton, `RotatingFileHandler` (1 MB,
-  5 backups), `apply_log_settings()`, `current_log_path()`.
-- **📂 Open folder button** on the Quick Capture toolbar.
-- Verbose DEBUG logging across all modules.
-
-### Changed
-
-- Quick Capture toolbar — four equal-width buttons.
-- `_divider()` helper uses plain `QWidget` instead of `QFrame.HLine`.
-- Version bumped to `1.6.2`.
+- Logging tab — enable/disable, log level, log folder, current session path, Open log folder button.
+- `utils/logger.py` — singleton, RotatingFileHandler (1 MB, 5 backups), `apply_log_settings()`, `current_log_path()`.
+- 📂 Open folder button on Quick Capture toolbar.
 
 ---
 
@@ -135,18 +103,7 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **▶ Test capture button** in the Settings footer. Hides the window, opens the
-  overlay, and re-opens Settings automatically on completion.
-- `_return_to_settings` flag and `_refresh_settings_status_lbl()` helper.
-
-### Removed
-
-- "New profile" button from the Quick Capture panel.
-
-### Changed
-
-- Settings footer redesigned into two rows (test row + save-as-profile row).
-- Version bumped to `1.5.0`.
+- ▶ Test capture button in the Settings footer. Re-opens Settings automatically on completion.
 
 ---
 
@@ -154,37 +111,20 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `QListWidget` profile list on the Quick Capture panel and Settings → Profiles.
+- QListWidget profile list on Quick Capture panel and Settings → Profiles.
 - "Save as profile" footer always visible across all tabs.
-- `self._active_profile` tracking with highlight restore after list rebuilds.
-- `_rebuild_all_profile_lists()` and `_load_profile_by_name()` shared helpers.
-
-### Removed
-
-- `QComboBox` profile dropdowns on both panels.
-
-### Changed
-
-- Version bumped to `1.4.0`.
 
 ---
 
-## [1.3.0] — UI polish, colour scheme, hotkey capture
-
-### Fixed
-
-- Tab overlap and Python 3.9 compatibility (`X | None` → `Optional[X]`).
+## [1.3.0] — UI polish, hotkey capture
 
 ### Added
 
-- `HotkeyCapture` widget — click to record, Escape to cancel. Supports F1–F15,
-  navigation keys, printable ASCII, and modifier combos.
+- HotkeyCapture widget — click to record, Escape to cancel.
 
 ### Changed
 
-- Colour scheme: purple → slate-blue (`#2563eb`). Dark slate header bar.
-- Header bar and "← Back" button added to Settings panel.
-- Version bumped to `1.3.0`.
+- Colour scheme updated; dark slate header bar added.
 
 ---
 
@@ -192,30 +132,17 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Quick Capture panel and Settings panel with `QStackedWidget`.
-- Stylesheet constants and `_section_label()` / `_divider()` helpers.
-
-### Changed
-
-- Window width fixed at 400 px; height auto-adjusts.
-- Version bumped to `1.2.0`.
+- Quick Capture panel and Settings panel with QStackedWidget.
 
 ---
 
-## [1.1.0] — Auto-save, toast improvements, keyboard shortcut overlay
+## [1.1.0] — Auto-save, toast, keyboard shortcut overlay
 
 ### Added
 
-- Auto-save — 600 ms debounce, `✔ Settings saved` indicator.
-- Keyboard shortcut overlay — press `?` on the capture overlay.
-- "Show in Explorer" link in the toast notification.
-
-### Changed
-
-- Toast redesigned: dark slate, coloured border, anchored to primary screen.
-- `Esc` closes the shortcut panel first, then cancels the overlay.
-- Settings file renamed to `.memoshot_settings.json`.
-- Version bumped to `1.1.0`.
+- Auto-save with 600 ms debounce.
+- Keyboard shortcut overlay on capture overlay (press `?`).
+- "Show in Explorer" link in toast notification.
 
 ---
 
@@ -223,12 +150,9 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Full-screen capture overlay spanning all connected monitors.
+- Full-screen capture overlay, multi-monitor support.
 - Per-ratio last-region memory (9:16 and 16:9 independently).
-- `S` snap to screen, `Enter` capture, `Esc` cancel.
-- Global hotkey via background `QThread`.
-- 9:16 / 16:9 aspect-ratio lock, custom dimensions.
-- Sequential or timestamp file naming, optional clipboard copy.
-- Named profiles (save / load / delete).
+- Global hotkey via background QThread.
+- Aspect-ratio lock, custom dimensions, sequential/timestamp file naming.
+- Named profiles (save / load / delete), clipboard copy.
 - System-tray integration, toast notification.
-- Modular source layout, `version.py`, `~/.memoshot_settings.json`.

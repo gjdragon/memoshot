@@ -16,22 +16,27 @@ A lightweight, always-available screenshot tool for content creators. MemoShot l
 
 ## Features
 
-- **Global hotkey capture** — trigger from any app without switching windows. Default is `Ctrl+Shift+P`; change it by clicking the hotkey field and pressing your preferred keys.
-- **Full-screen interactive overlay** — drag and resize a selection rectangle across any monitor. All edges and corners are resizable. Multi-monitor layouts with different y-origins are handled correctly.
-- **Arrow-key nudging** — fine-position the selection with arrow keys (1 px per press, 10 px with `Shift`), without needing to drag again.
-- **Portrait & landscape modes** — 9:16 and 16:9 aspect-ratio lock. Unlock the ratio for any custom pixel size.
-- **Per-mode region memory** — the overlay remembers the last capture position separately for portrait and landscape, so repeat captures are one keypress.
-- **Named profiles** — save a complete snapshot of all settings (hotkey, save folder, prefix, dimensions, ratio, clipboard) under a name. Switch profiles instantly from the main window.
-- **Active-profile indicator** — a pill on the Quick Capture panel always shows which profile is currently loaded.
-- **Test capture from Settings** — run a live capture while reviewing settings, then come straight back to Settings to verify and save as a profile.
-- **Auto-save settings** — every change persists immediately with no Save button.
-- **Sequential or timestamp file naming** — set a file prefix for `myshot_001.png, myshot_002.png, …`, or leave it blank for `Portrait_YYYY-MM-DD_HH-MM-SS.png`. A live example updates as you type.
-- **Clipboard copy** — each screenshot is copied to the system clipboard automatically (optional).
-- **Toast notification** — appears at the bottom of your primary screen after every capture. Includes a **Show in Explorer** link.
-- **Keyboard shortcut overlay** — press `?` on the capture overlay to show a floating cheat-sheet of every key and mouse action.
-- **Multi-monitor aware** — the overlay spans all connected screens with correct coordinate handling. Press `S` to snap the selection to the current screen.
-- **Logging** — configurable file logging with rotating log files, DEBUG/INFO level, and a Logging tab in Settings.
-- **Open folder shortcut** — one-click button on the main window to open the screenshots save folder.
+- **Global hotkey capture** — trigger from any app. Default `Ctrl+Shift+P`; click the hotkey field and press any combination to change it. The hotkey is global and shared across all profiles.
+- **Full-screen interactive overlay** — drag and resize a selection rectangle across any monitor. All edges and corners are resizable. Multi-monitor layouts handled correctly.
+- **Arrow-key nudging** — fine-position the selection with arrow keys (1 px; 10 px with `Shift`).
+- **Portrait & landscape modes** — 9:16 and 16:9 aspect-ratio lock, or unlock for any custom size.
+- **Per-mode region memory** — the overlay remembers the last capture position separately for portrait and landscape.
+- **Output format** — save as PNG, JPEG (with quality slider), or WebP. Set per profile.
+- **Capture confirmation** — each profile can require pressing `Enter` to confirm before saving, or fire instantly. Test Capture always requires confirmation.
+- **Named profiles** — save a complete snapshot of settings (save folder, prefix, dimensions, ratio, format, clipboard, confirmation) under a name. Switch instantly from the main window.
+- **Default profile** — a profile named `Default` is loaded automatically on every startup.
+- **Profile management** — create, edit, rename (double-click), reorder (drag-and-drop), delete, export to `.json`, and import from `.json`.
+- **Active-profile indicator** — a pill on the Quick Capture panel shows which profile is loaded.
+- **Profile detail card** — selecting a profile shows an inline summary of its key settings.
+- **Test capture** — run a live capture while reviewing settings, then return to Settings to save as a profile.
+- **Auto-save settings** — every change persists immediately.
+- **Sequential or timestamp file naming** — set a prefix for `myshot_001.jpg`, or leave blank for `Portrait_YYYY-MM-DD_HH-MM-SS.png`. Live example updates as you type.
+- **Clipboard copy** — each screenshot copied to the system clipboard (optional, per profile).
+- **Toast notification** — appears at the bottom of your primary screen after every capture, with a **Show in Explorer** link.
+- **Keyboard shortcut overlay** — press `?` on the capture overlay for a floating cheat-sheet.
+- **Contextual help** — every settings section has a `?` badge; hover to read the guide without cluttering the UI.
+- **Multi-monitor aware** — overlay spans all screens. Press `S` to snap the selection to the current screen.
+- **Logging** — rotating file logging with DEBUG/INFO level, configurable folder, and a Logging tab in Settings.
 - **System tray** — minimises out of your taskbar. Right-click for Capture / Show Window / Exit.
 
 ---
@@ -46,7 +51,7 @@ A lightweight, always-available screenshot tool for content creators. MemoShot l
 pip install PyQt5 keyboard
 ```
 
-> **Windows note:** the `keyboard` library requires administrator privileges (or a system where UAC is not restricting hook registration) to register global hotkeys.
+> **Windows note:** the `keyboard` library requires administrator privileges to register global hotkeys.
 
 ---
 
@@ -59,56 +64,52 @@ pip install PyQt5 keyboard
 python src/main.py
 ```
 
-No build step or installer needed. MemoShot runs directly from the source tree.
+No build step or installer needed.
 
 ---
 
 ## Quick start
 
-1. Run `python src/main.py`. The main window opens and the app registers in the system tray.
+1. Run `python src/main.py`. The app registers in the system tray.
 2. Press the hotkey (default `Ctrl+Shift+P`) from any application.
-3. The overlay appears. Drag the selection rectangle to your region of interest. Use arrow keys to fine-tune the position.
-4. Press `Enter` to capture. A toast confirms the save location with a **Show in Explorer** link.
+3. The overlay appears. Drag the rectangle to your region. Use arrow keys to fine-tune.
+4. Press `Enter` to capture. A toast confirms the save with a **Show in Explorer** link.
 5. The window stays minimised to tray until you need it again.
 
 ---
 
 ## Main window
 
-The window has two panels that switch without opening a new window.
-
 ### Quick Capture panel (default)
 
 | Element | Purpose |
 |---|---|
-| **Active-profile pill** | Shows which profile is currently loaded (hidden when none is active). |
-| **Capture button** | Starts a capture. Shows the active hotkey as a reminder. |
-| **Status card** | Shows the dimensions and position of the last captured region, or a first-run hint. |
-| **Profile list** | All saved profiles. Click a row to load it instantly — the row stays highlighted. |
+| **Active-profile pill** | Shows the loaded profile and capture mode. Hidden when none is active. |
+| **Capture button** | Starts a capture. Displays the active hotkey. |
+| **Status card** | Dimensions and position of the last captured region, or a first-run hint. |
+| **Profile list** | All saved profiles in your custom order. Click to load instantly. |
 | **⚙ Settings** | Opens the Settings panel. |
-| **📂 Open folder** | Opens the screenshots save folder in the file manager. |
+| **📂 Open folder** | Opens the screenshots folder in the file manager. |
 | **⬜ Tray** | Minimises to the system tray. |
-| **Exit** | Quits the application (no confirmation prompt). |
+| **Exit** | Quits the application. |
 
 ### Settings panel
 
-Opens from the **⚙ Settings** button. **← Back** returns to Quick Capture.
-
-Four tabs:
+Four tabs, with a persistent footer for test captures and profile saving.
 
 | Tab | Contents |
 |---|---|
-| **Capture** | Hotkey recorder, aspect ratio (9:16 / 16:9), ratio lock, width & height in pixels. |
-| **Output** | Save folder (with Browse), file prefix with live example, clipboard copy toggle. |
-| **Profiles** | List of saved profiles. Click a row to load it. Delete button removes the selected profile. |
-| **Logging** | Enable/disable logging, log level (INFO / DEBUG), log folder, current log file path, Open log folder button. |
+| **Capture** | Hotkey (global), capture mode (Region / Window), capture confirmation, aspect ratio, ratio lock, dimensions. |
+| **Output** | Save folder, file prefix with live example, clipboard copy, output format (PNG / JPEG / WebP) with JPEG quality slider. |
+| **Profiles** | Profile list with drag-to-reorder and double-click rename. Edit, Delete, Export buttons. Import from file. Detail card for selected profile. |
+| **Logging** | Enable/disable, log level, log folder, current session file, Open log folder button. |
 
-**Footer (always visible across all tabs):**
+**Footer:**
 
 | Element | Purpose |
 |---|---|
-| **▶ Test capture** | Runs a live capture with the current settings. Settings re-opens automatically so you can review the result and save as a profile. |
-| **Save as profile** | Type a profile name and press Save (or Enter). If the name already exists, an inline warning prompts you to confirm the overwrite. |
+| **▶ Test capture** | Live capture with current settings. Returns to Settings automatically. Always requires Enter confirmation. |
+| **Save as profile** | Type a name and press Save. Overwrites require a second confirmation. |
 
 ---
 
@@ -116,73 +117,68 @@ Four tabs:
 
 | Key / Action | Effect |
 |---|---|
-| `Enter` | Capture and save the selected region |
-| `Esc` | Close the shortcut panel if open, otherwise cancel the overlay |
-| `S` | Snap the selection to fill the current screen |
-| `?` | Toggle the keyboard shortcut cheat-sheet |
-| `Arrow keys` | Nudge the selection 1 px in any direction |
-| `Shift + Arrow keys` | Nudge the selection 10 px in any direction |
-| Drag inside the rectangle | Move the capture region |
-| Drag any edge | Resize from that edge |
-| Drag any corner | Resize from that corner |
-
----
-
-## Hotkey recording
-
-Click the hotkey field in **Settings → Capture**. The field turns blue and shows "Press keys…". Press your combination — for example `F12`, `Ctrl+Shift+S`, or `Alt+F4`. The field fills immediately and recording stops. Press `Escape` to cancel and keep the previous hotkey.
-
-Supported keys: all function keys (`F1`–`F15`), navigation keys (Home, End, Page Up/Down, arrow keys), Delete, Insert, Tab, Enter, Backspace, Space, Print Screen, Scroll Lock, Pause, Num Lock, Caps Lock, and any printable character.
+| `Enter` | Capture and save |
+| `Esc` | Close shortcut panel if open, otherwise cancel |
+| `S` | Snap selection to the current screen |
+| `?` | Toggle keyboard shortcut cheat-sheet |
+| `Arrow keys` | Nudge selection 1 px |
+| `Shift + Arrow keys` | Nudge selection 10 px |
+| Drag inside | Move the capture region |
+| Drag edge | Resize from that edge |
+| Drag corner | Resize from that corner |
 
 ---
 
 ## Profile workflow
 
-The recommended workflow for setting up a new profile:
+1. Open **⚙ Settings** and configure Capture and Output tabs.
+2. Click **▶ Test capture**, position the region, press `Enter`.
+3. Settings re-opens. Type a profile name in the footer and press **Save**.
+4. The profile appears in both the Quick panel and the Profiles tab.
 
-1. Open **⚙ Settings**.
-2. Configure your hotkey, ratio, dimensions, save folder, and prefix across the Capture and Output tabs.
-3. Click **▶ Test capture** in the footer. The overlay opens — position and resize your region, then press `Enter`.
-4. Settings re-opens. The footer status line shows the captured dimensions and position.
-5. Type a profile name in the footer field and press **Save**.
-6. The new profile appears immediately in the Quick panel list and the Profiles tab. The active-profile pill confirms which profile is loaded.
+To edit an existing profile: go to **Profiles**, select it, click **Edit**. All tabs load that profile's settings and the footer pre-fills the name — make changes and press **Save**.
 
-To switch profiles, click any row in the Quick panel list.
+To rename: double-click the profile name directly in the list.
+
+To reorder: drag any profile row to a new position.
+
+To share or back up: select a profile and click **Export**. To restore: click **Import profiles from file…**
+
+A profile named **Default** is loaded automatically every time the app starts.
 
 ---
 
-## Logging
+## Output formats
 
-MemoShot can write a rotating log file for every session. Configure it in **Settings → Logging**.
+| Format | Extension | Notes |
+|---|---|---|
+| PNG | `.png` | Lossless. Best for editing and archiving. |
+| JPEG | `.jpg` | Lossy, smallest file size. Quality slider 1–100 (default 90). |
+| WebP | `.webp` | Modern format, smaller than PNG at comparable quality. |
 
-| Setting | Description |
-|---|---|
-| Enable logging | Master on/off switch. Changes take effect immediately. |
-| Log level | **INFO** — key events (captures, profile loads, hotkey registration). **DEBUG** — every interaction including drag, resize, snap, clipboard, file naming. |
-| Log folder | Directory for log files. Defaults to `src/Logs/` relative to the script. |
-
-Log files are named `log_memoshot_YYYYMMDD_HHMMSS.txt`. Each file is capped at 1 MB with 5 rotating backups. Click **📂 Open log folder** to browse them.
+Format and JPEG quality are saved per profile.
 
 ---
 
 ## Settings reference
 
-All settings save automatically on every change. There is no Save button.
+| Setting | Scope | Description |
+|---|---|---|
+| Hotkey | Global | Keyboard shortcut — click to record |
+| Save folder | Profile | Output directory for screenshots |
+| File prefix | Profile | Empty = timestamp. Set for numbered sequences. |
+| Width / Height | Profile | Capture rectangle dimensions in pixels |
+| Aspect ratio | Profile | 9:16 Portrait or 16:9 Landscape |
+| Lock aspect ratio | Profile | Keeps ratio fixed when adjusting spin-boxes |
+| Output format | Profile | PNG, JPEG, or WebP |
+| JPEG quality | Profile | 1–100 (JPEG only) |
+| Copy to clipboard | Profile | Copies each screenshot to the clipboard after saving |
+| Capture confirmation | Profile | Require Enter before saving; or fire instantly |
+| Enable logging | Global | Write a log file for this session |
+| Log level | Global | INFO or DEBUG |
+| Log folder | Global | Directory for log files (default: `src/Logs/`) |
 
-| Setting | Description |
-|---|---|
-| Hotkey | Global keyboard shortcut — click to record |
-| Save folder | Output directory for PNG files |
-| File prefix | Empty = timestamp filename. Set a prefix for numbered sequences (`prefix_001.png`, `prefix_002.png`, …). |
-| Width / Height | Capture rectangle dimensions in pixels |
-| Aspect ratio | 9:16 Portrait or 16:9 Landscape |
-| Lock aspect ratio | Keeps the ratio fixed when adjusting the spin-boxes |
-| Copy to clipboard | Copies each screenshot to the system clipboard after saving |
-| Enable logging | Write a log file for this session |
-| Log level | INFO or DEBUG |
-| Log folder | Directory for log files (default: `src/Logs/`) |
-
-Settings are stored as JSON at `~/.memoshot_settings.json`. You can edit this file manually while MemoShot is not running.
+Settings are stored as JSON at `~/.memoshot_settings.json`.
 
 ---
 
@@ -192,15 +188,16 @@ Settings are stored as JSON at `~/.memoshot_settings.json`. You can edit this fi
 src/
 ├── main.py                 Entry point
 ├── app.py                  QApplication setup, logging initialisation
-├── version.py              Version string (single source of truth)
+├── version.py              Version string
 ├── core/
 │   ├── settings.py         Load / save / profile helpers — no Qt dependency
 │   └── hotkey.py           QThread wrapper around the keyboard library
 ├── capture/
-│   └── screenshot.py       File naming, cropping, clipboard copy
+│   └── screenshot.py       File naming, format handling, cropping, clipboard
 ├── ui/
 │   ├── main_window.py      Two-panel main window, tray, HotkeyCapture widget
-│   └── overlay.py          Full-screen capture overlay
+│   ├── overlay.py          Full-screen region capture overlay
+│   └── window_overlay.py   Window-click capture overlay
 └── utils/
     └── logger.py           Rotating file logger, apply_log_settings()
 ```
