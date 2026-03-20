@@ -635,7 +635,11 @@ class PortraitScreenshotApp(QMainWindow):
 
         # ── Capture mode selector ─────────────────────────────────────────────
         layout.setSpacing(0)   # manual spacing throughout for full control
-        layout.addWidget(self._section_label("Capture mode"))
+        layout.addLayout(self._section_row(
+            "Capture mode",
+            "Region: drag to select any rectangular area on screen.\n"
+            "Window: click a window to capture it — the border is detected automatically.",
+        ))
         layout.addSpacing(8)
         mode_row = QHBoxLayout()
         mode_row.setSpacing(6)
@@ -670,23 +674,29 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addSpacing(10)
 
         # ── Hotkey ────────────────────────────────────────────────────────────
-        layout.addWidget(self._section_label("Hotkey"))
+        layout.addLayout(self._section_row(
+            "Hotkey",
+            "Global shortcut key — applies to all profiles.\n"
+            "Click the field and press any key combination (e.g. F12, Ctrl+Shift+S).\n"
+            "Changes take effect immediately and are saved automatically.",
+        ))
         layout.addSpacing(8)
         self.hotkey_input = HotkeyCapture(self.settings["hotkey"])
         self.hotkey_input.installEventFilter(self)
         layout.addWidget(self.hotkey_input)
-        layout.addSpacing(4)
-        hint = QLabel("Global shortcut — applies to all profiles. Click to record a new combination.")
-        hint.setStyleSheet(STYLE_LABEL_MUTED)
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
 
         layout.addSpacing(10)
         layout.addWidget(self._divider())
         layout.addSpacing(10)
 
         # ── Confirmation ──────────────────────────────────────────────────────
-        layout.addWidget(self._section_label("Confirmation"))
+        layout.addLayout(self._section_row(
+            "Confirmation",
+            "When enabled, pressing the hotkey opens the capture box so you can\n"
+            "reposition it before confirming with Enter — useful while setting up.\n"
+            "Disable this on a trusted profile to capture instantly with no extra step.\n"
+            "Note: Test Capture always requires confirmation regardless of this setting.",
+        ))
         layout.addSpacing(8)
         self.confirm_capture_checkbox = QCheckBox("Require Enter to confirm each capture")
         self.confirm_capture_checkbox.setChecked(
@@ -694,14 +704,6 @@ class PortraitScreenshotApp(QMainWindow):
         )
         self.confirm_capture_checkbox.stateChanged.connect(self._schedule_auto_save)
         layout.addWidget(self.confirm_capture_checkbox)
-        layout.addSpacing(4)
-        confirm_hint = QLabel(
-            "When on, the capture box appears first so you can reposition it before "
-            "confirming with Enter. Turn off for a trusted profile to capture instantly."
-        )
-        confirm_hint.setStyleSheet(STYLE_LABEL_MUTED)
-        confirm_hint.setWordWrap(True)
-        layout.addWidget(confirm_hint)
 
         # ── Region-only settings (hidden for other modes) ─────────────────────
         # No margins on the container itself — the outer layout's spacing (12px)
@@ -714,7 +716,12 @@ class PortraitScreenshotApp(QMainWindow):
 
         rsl.addWidget(self._divider())
         rsl.addSpacing(10)
-        rsl.addWidget(self._section_label("Aspect ratio"))
+        rsl.addLayout(self._section_row(
+            "Aspect ratio",
+            "9:16 Portrait — for YouTube Shorts, TikTok, Instagram Reels.\n"
+            "16:9 Landscape — for standard YouTube videos and presentations.\n"
+            "Lock ratio keeps width and height proportional as you resize.",
+        ))
         rsl.addSpacing(8)
         ratio_row = QHBoxLayout()
         self.ratio_group = QButtonGroup()
@@ -742,7 +749,12 @@ class PortraitScreenshotApp(QMainWindow):
         rsl.addSpacing(10)
         rsl.addWidget(self._divider())
         rsl.addSpacing(10)
-        rsl.addWidget(self._section_label("Dimensions"))
+        rsl.addLayout(self._section_row(
+            "Dimensions",
+            "Width and height of the capture box in pixels.\n"
+            "With ratio locked, changing one value adjusts the other automatically.\n"
+            "You can also resize the box directly by dragging its edges on screen.",
+        ))
         rsl.addSpacing(8)
         dim_row = QHBoxLayout()
         dim_row.setSpacing(8)
@@ -831,7 +843,11 @@ class PortraitScreenshotApp(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-        layout.addWidget(self._section_label("Save folder"))
+        layout.addLayout(self._section_row(
+            "Save folder",
+            "Folder where screenshots are saved.\n"
+            "Each profile can have its own save location.",
+        ))
         folder_row = QHBoxLayout()
         self.save_input = QLineEdit(self.settings["save_location"])
         self.save_input.editingFinished.connect(self._schedule_auto_save)
@@ -845,7 +861,12 @@ class PortraitScreenshotApp(QMainWindow):
         layout.addWidget(self._divider())
 
         # Issue #12: clearer prefix field with live example preview
-        layout.addWidget(self._section_label("File prefix"))
+        layout.addLayout(self._section_row(
+            "File prefix",
+            "Optional prefix added to the start of every saved filename.\n"
+            "Leave empty to use timestamps (e.g. 20240315_143022.png).\n"
+            "With a prefix: myshot_001.png, myshot_002.png, …",
+        ))
         self.prefix_input = QLineEdit(self.settings.get("file_prefix", ""))
         self.prefix_input.setPlaceholderText("Leave empty to use timestamps")
         self.prefix_input.editingFinished.connect(self._schedule_auto_save)
@@ -857,7 +878,11 @@ class PortraitScreenshotApp(QMainWindow):
         self._refresh_prefix_example(self.prefix_input.text())
 
         layout.addWidget(self._divider())
-        layout.addWidget(self._section_label("Clipboard"))
+        layout.addLayout(self._section_row(
+            "Clipboard",
+            "When enabled, each screenshot is also copied to the clipboard\n"
+            "so you can paste it directly into any app straight after capture.",
+        ))
         self.copy_to_clipboard_checkbox = QCheckBox("Copy each screenshot to clipboard")
         self.copy_to_clipboard_checkbox.setChecked(
             self.settings.get("copy_to_clipboard", True)
@@ -888,14 +913,13 @@ class PortraitScreenshotApp(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
-        layout.addWidget(self._section_label("Your profiles"))
-        hint = QLabel(
-            "Click a profile to load it instantly. Use 'Test capture' in the "
-            "footer to try settings, then type a name and Save to create a profile."
-        )
-        hint.setStyleSheet(STYLE_LABEL_MUTED)
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
+        layout.addLayout(self._section_row(
+            "Your profiles",
+            "Profiles save your capture settings so you can switch between setups instantly.\n"
+            "Click a profile to load it. To create one: adjust settings, type a name\n"
+            "in the footer box and press Save. A profile named 'Default' loads automatically\n"
+            "every time the app starts.",
+        ))
 
         action_row = QHBoxLayout()
         action_row.setSpacing(6)
@@ -931,7 +955,11 @@ class PortraitScreenshotApp(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-        layout.addWidget(self._section_label("Logging"))
+        layout.addLayout(self._section_row(
+            "Logging",
+            "When enabled, MemoShot writes a log file recording key events.\n"
+            "Useful for diagnosing issues. Logs are stored in the Log folder below.",
+        ))
         self.logging_enabled_checkbox = QCheckBox("Enable logging to file")
         self.logging_enabled_checkbox.setChecked(
             self.settings.get("logging_enabled", True)
@@ -939,7 +967,11 @@ class PortraitScreenshotApp(QMainWindow):
         self.logging_enabled_checkbox.stateChanged.connect(self._on_logging_setting_changed)
         layout.addWidget(self.logging_enabled_checkbox)
         layout.addWidget(self._divider())
-        layout.addWidget(self._section_label("Log level"))
+        layout.addLayout(self._section_row(
+            "Log level",
+            "INFO: records key events (captures, profile loads, errors).\n"
+            "DEBUG: records every interaction — much more verbose, use when diagnosing a bug.",
+        ))
         level_row = QHBoxLayout()
         self.log_level_combo = QComboBox()
         self.log_level_combo.addItems(["INFO", "DEBUG"])
@@ -950,13 +982,16 @@ class PortraitScreenshotApp(QMainWindow):
         self.log_level_combo.setFixedWidth(100)
         self.log_level_combo.currentTextChanged.connect(self._on_logging_setting_changed)
         level_row.addWidget(self.log_level_combo)
-        level_row.addWidget(
-            self._inline_hint("INFO = key events only   ·   DEBUG = every interaction")
-        )
         level_row.addStretch()
         layout.addLayout(level_row)
         layout.addWidget(self._divider())
-        layout.addWidget(self._section_label("Log folder"))
+        layout.addLayout(self._section_row(
+            "Log folder",
+            "Where log files are written.\n"
+            "Files are named log_memoshot_YYYYMMDD_HHMMSS.txt\n"
+            "Max 1 MB per file — 5 rotating backups kept automatically.\n"
+            "Leave empty to use the default Logs/ folder inside the app directory.",
+        ))
         log_folder_row = QHBoxLayout()
         default_folder = self._default_log_folder_display()
         self.log_folder_input = QLineEdit(
@@ -970,14 +1005,12 @@ class PortraitScreenshotApp(QMainWindow):
         log_folder_row.addWidget(self.log_folder_input, 1)
         log_folder_row.addWidget(log_browse_btn)
         layout.addLayout(log_folder_row)
-        hint = QLabel(
-            "Log files are named log_memoshot_YYYYMMDD_HHMMSS.txt\n"
-            "Max 1 MB per file · 5 rotating backups kept automatically"
-        )
-        hint.setStyleSheet(STYLE_LABEL_MUTED)
-        layout.addWidget(hint)
         layout.addWidget(self._divider())
-        layout.addWidget(self._section_label("Current session"))
+        layout.addLayout(self._section_row(
+            "Current session",
+            "The log file being written for this session.\n"
+            "Click the path to select and copy it.",
+        ))
         self.current_log_lbl = QLabel()
         self.current_log_lbl.setStyleSheet(STYLE_LABEL_MUTED)
         self.current_log_lbl.setWordWrap(False)
@@ -1010,6 +1043,48 @@ class PortraitScreenshotApp(QMainWindow):
     def _section_label(text: str) -> QLabel:
         lbl = QLabel(text.upper())
         lbl.setStyleSheet(STYLE_SECTION_HDR)
+        return lbl
+
+    @staticmethod
+    def _help_badge(tooltip: str) -> QLabel:
+        """Small circled ? that shows a tooltip on hover. Zero layout cost."""
+        badge = QLabel("?")
+        badge.setFixedSize(14, 14)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet(f"""
+            QLabel {{
+                color: {_TEXT_HINT};
+                background: {_SURFACE_ALT};
+                border: 1px solid {_BORDER};
+                border-radius: 7px;
+                font-size: 9px;
+                font-weight: 600;
+            }}
+            QLabel:hover {{
+                color: {_ACCENT};
+                border-color: {_ACCENT};
+                background: {_ACCENT_LIGHT};
+            }}
+        """)
+        badge.setToolTip(tooltip)
+        return badge
+
+    @classmethod
+    def _section_row(cls, text: str, tooltip: str = "") -> QHBoxLayout:
+        """Section header row: label + optional help badge, no bottom spacing."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(5)
+        row.addWidget(cls._section_label(text))
+        if tooltip:
+            row.addWidget(cls._help_badge(tooltip))
+        row.addStretch()
+        return row
+
+    @staticmethod
+    def _inline_hint(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color: {_TEXT_HINT}; font-size: 11px;")
         return lbl
 
     @staticmethod
@@ -1375,7 +1450,10 @@ class PortraitScreenshotApp(QMainWindow):
                 )
             else:
                 # ── Region mode (default) ─────────────────────────────────────
-                self.overlay = CaptureOverlay(self.settings)
+                self.overlay = CaptureOverlay(
+                    self.settings,
+                    force_confirm=self._return_to_settings,
+                )
             self.overlay.capture_signal.connect(self._on_capture_complete)
             self.overlay.update_ui_dimensions.connect(
                 self._on_overlay_dimensions_changed

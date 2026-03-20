@@ -28,9 +28,10 @@ class CaptureOverlay(QWidget):
     close_signal = pyqtSignal()
     update_ui_dimensions = pyqtSignal(int, int)   # width, height
 
-    def __init__(self, settings: dict) -> None:
+    def __init__(self, settings: dict, force_confirm: bool = False) -> None:
         super().__init__()
         self.settings = settings
+        self._force_confirm = force_confirm
 
         self.setWindowFlags(
             Qt.WindowStaysOnTopHint
@@ -82,9 +83,9 @@ class CaptureOverlay(QWidget):
 
         self._capture_screens()
 
-        # If confirmation is disabled for this profile, fire immediately
-        # after the overlay has fully painted (100 ms gives Qt one frame).
-        if not self.settings.get("confirm_capture", True):
+        # If confirmation is disabled for this profile, fire immediately —
+        # but never during a test capture (force_confirm overrides the setting).
+        if not self._force_confirm and not self.settings.get("confirm_capture", True):
             QTimer.singleShot(100, self._capture_and_save)
 
     # ── Setup helpers ──────────────────────────────────────────────────────────

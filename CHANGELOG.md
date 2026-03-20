@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [1.9.0] 20 Mar 2026
+ - Changed inline hints to pop-up windows for help guide
+ 
 ## [1.8.1] 20 Mar 2026
  - Added default profile
  - Made the shortcut key globle for all the profiles. it is not controlled by individual profile any more
