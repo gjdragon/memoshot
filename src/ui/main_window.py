@@ -905,14 +905,14 @@ class PortraitScreenshotApp(QMainWindow):
                 "→  e.g.  20240315_143022.png  (timestamp default)"
             )
 
-    # ── Tab: Profiles (issue #1: clicking loads immediately, no Load button) ──
+    # ── Tab: Profiles ─────────────────────────────────────────────────────────
 
     def _build_tab_profiles(self) -> QWidget:
         tab = QWidget()
         tab.setStyleSheet(f"background: {_SURFACE};")
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
         layout.addLayout(self._section_row(
             "Your profiles",
             "Profiles save your capture settings so you can switch between setups instantly.\n"
@@ -920,7 +920,18 @@ class PortraitScreenshotApp(QMainWindow):
             "in the footer box and press Save. A profile named 'Default' loads automatically\n"
             "every time the app starts.",
         ))
+        layout.addSpacing(4)
 
+        # Profile list — stretch=1 so it fills all available vertical space
+        self.settings_profile_list = QListWidget()
+        self.settings_profile_list.setStyleSheet(STYLE_PROFILE_LIST)
+        self.settings_profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.settings_profile_list.itemClicked.connect(
+            self._on_settings_profile_list_clicked
+        )
+        layout.addWidget(self.settings_profile_list, 1)
+
+        # Action row: Delete + Edit buttons + selection label
         action_row = QHBoxLayout()
         action_row.setSpacing(6)
         self.sp_delete_btn = QPushButton("Delete")
@@ -928,23 +939,47 @@ class PortraitScreenshotApp(QMainWindow):
         self.sp_delete_btn.setEnabled(False)
         self.sp_delete_btn.clicked.connect(self._delete_selected_profile)
         action_row.addWidget(self.sp_delete_btn)
+
+        self.sp_edit_btn = QPushButton("✏  Edit")
+        self.sp_edit_btn.setStyleSheet(STYLE_PRIMARY_SM)
+        self.sp_edit_btn.setEnabled(False)
+        self.sp_edit_btn.setToolTip(
+            "Load this profile's settings into all tabs so you can modify them,\n"
+            "then save back under the same name using the footer Save button."
+        )
+        self.sp_edit_btn.clicked.connect(self._edit_selected_profile)
+        action_row.addWidget(self.sp_edit_btn)
+
         action_row.addStretch()
         self.sp_status_lbl = QLabel()
         self.sp_status_lbl.setStyleSheet(STYLE_LABEL_MUTED)
         action_row.addWidget(self.sp_status_lbl)
-
-        self.settings_profile_list = QListWidget()
-        self.settings_profile_list.setStyleSheet(STYLE_PROFILE_LIST)
-        self.settings_profile_list.setMinimumHeight(130)
-        self.settings_profile_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        # Issue #1: single click = load immediately (same as Quick panel)
-        self.settings_profile_list.itemClicked.connect(
-            self._on_settings_profile_list_clicked
-        )
-        layout.addWidget(self.settings_profile_list)
-        self._rebuild_settings_profile_list()
         layout.addLayout(action_row)
-        layout.addStretch()
+
+        # Inline detail card — shown when a profile is selected
+        self.sp_detail_card = QFrame()
+        self.sp_detail_card.setStyleSheet(f"""
+            QFrame {{
+                background: {_SURFACE_ALT};
+                border: 1px solid {_BORDER};
+                border-radius: 4px;
+            }}
+        """)
+        detail_layout = QVBoxLayout(self.sp_detail_card)
+        detail_layout.setContentsMargins(10, 8, 10, 8)
+        detail_layout.setSpacing(3)
+        self.sp_detail_lbl = QLabel()
+        self.sp_detail_lbl.setStyleSheet(
+            f"color: {_TEXT_MUTED}; font-size: 11px; background: transparent;"
+        )
+        self.sp_detail_lbl.setWordWrap(True)
+        detail_layout.addWidget(self.sp_detail_lbl)
+        self.sp_detail_card.setVisible(False)
+        layout.addWidget(self.sp_detail_card)
+
+        # Populate list now that all dependent widgets exist
+        self._rebuild_settings_profile_list()
+
         return tab
 
     # ── Tab: Logging ──────────────────────────────────────────────────────────
@@ -1153,6 +1188,13 @@ class PortraitScreenshotApp(QMainWindow):
             placeholder.setForeground(QColor(_TEXT_HINT))
             self.settings_profile_list.addItem(placeholder)
         self._update_settings_profile_buttons()
+        # Refresh detail card for the currently selected item (if any)
+        selected = self.settings_profile_list.currentItem()
+        if selected and (selected.flags() & Qt.ItemIsSelectable):
+            self._refresh_profile_detail_card(selected.text())
+        else:
+            if hasattr(self, "sp_detail_card"):
+                self.sp_detail_card.setVisible(False)
         self.settings_profile_list.blockSignals(False)
 
     def _rebuild_all_profile_lists(self) -> None:
@@ -1163,10 +1205,39 @@ class PortraitScreenshotApp(QMainWindow):
         selected = self.settings_profile_list.currentItem()
         has_selection = bool(selected and selected.flags() & Qt.ItemIsSelectable)
         self.sp_delete_btn.setEnabled(has_selection)
+        self.sp_edit_btn.setEnabled(has_selection)
         if has_selection:
-            self.sp_status_lbl.setText(f"Selected: {selected.text()}")
+            name = selected.text()
+            self.sp_status_lbl.setText(f"Selected: {name}")
+            self._refresh_profile_detail_card(name)
         else:
             self.sp_status_lbl.setText("")
+            self.sp_detail_card.setVisible(False)
+
+    def _refresh_profile_detail_card(self, name: str) -> None:
+        """Populate and show the inline detail card for the named profile."""
+        data = self.settings.get("profiles", {}).get(name)
+        if not data:
+            self.sp_detail_card.setVisible(False)
+            return
+        mode     = data.get("capture_mode", "region").title()
+        folder   = data.get("save_location", "—")
+        w        = data.get("portrait_width", "?")
+        h        = data.get("portrait_height", "?")
+        prefix   = data.get("file_prefix", "") or "—"
+        confirm  = "Yes" if data.get("confirm_capture", True) else "No (instant)"
+        clipboard = "Yes" if data.get("copy_to_clipboard", True) else "No"
+        # Shorten long folder paths for display
+        max_len = 38
+        if len(folder) > max_len:
+            folder = "…" + folder[-(max_len - 1):]
+        lines = [
+            f"Mode: {mode}   ·   Size: {w} × {h} px",
+            f"Save to: {folder}",
+            f"Prefix: {prefix}   ·   Clipboard: {clipboard}   ·   Confirm: {confirm}",
+        ]
+        self.sp_detail_lbl.setText("\n".join(lines))
+        self.sp_detail_card.setVisible(True)
 
     # ── Profile actions ───────────────────────────────────────────────────────
 
@@ -1200,6 +1271,26 @@ class PortraitScreenshotApp(QMainWindow):
         self._rebuild_all_profile_lists()
         self._refresh_active_profile_bar()
         self.sp_status_lbl.setText("")
+
+    def _edit_selected_profile(self) -> None:
+        """Load the selected profile into all settings tabs and pre-fill the
+        footer name box so the user can modify settings and save back in one click."""
+        item = self.settings_profile_list.currentItem()
+        if not item or not (item.flags() & Qt.ItemIsSelectable):
+            return
+        name = item.text()
+        # Load the profile so all tab widgets reflect its values
+        self._load_profile_by_name(name)
+        # Pre-fill the footer save box with the profile name so Save overwrites it
+        self.footer_profile_name.setText(name)
+        # Switch to the Capture tab so the user sees the settings immediately
+        self.tabs.setCurrentIndex(0)
+        # Show an inline prompt in the autosave label area
+        self.autosave_label.setText(f'✏  Editing "{name}" — make changes then press Save')
+        self.autosave_label.setStyleSheet(
+            f"color: {_WARN}; font-size: 10px; font-style: italic;"
+        )
+        QTimer.singleShot(6000, self._reset_autosave_label)
 
     # ── Save as profile (issue #9: overwrite warning) ─────────────────────────
 
